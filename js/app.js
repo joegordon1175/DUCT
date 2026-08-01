@@ -18,12 +18,15 @@ import {
   fittingGroups,
   materialsFor,
   material,
-  sizesFor,
   spaceType,
   velocityLimits,
   ROUND_SIZES,
   RECT_SIZES,
+  FLEX_SIZES,
 } from './data.js';
+
+/** Standard duct sizes are user-editable; these are the shipped starting points. */
+const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES };
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -137,8 +140,36 @@ function defaultState() {
     marginPct: 10,
     leakageClass: 'A',
     roomCorrection: 9,
+    sizeLists: {
+      round: [...DEFAULT_SIZE_LISTS.round],
+      rect: [...DEFAULT_SIZE_LISTS.rect],
+      flex: [...DEFAULT_SIZE_LISTS.flex],
+    },
     segments: [newSegment()],
   };
+}
+
+/** Parse a free-typed size list: any numbers, deduped and sorted. Empty/invalid input yields []. */
+function parseSizeList(text) {
+  const values = (String(text).match(/\d+(\.\d+)?/g) ?? []).map(Number).filter((n) => n > 0);
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function formatSizeList(list) {
+  return list.join(', ');
+}
+
+/** The size list a segment's shape snaps to; falls back to the shipped default if the
+ * user has emptied a list, since an empty list breaks rectangular sizing. */
+function sizeListFor(key) {
+  const list = state.sizeLists?.[key];
+  return list && list.length > 0 ? list : DEFAULT_SIZE_LISTS[key];
+}
+
+function sizesForShape(shape) {
+  if (shape === 'rectangular') return sizeListFor('rect');
+  if (shape === 'flexible') return sizeListFor('flex');
+  return sizeListFor('round');
 }
 
 let state = load() ?? defaultState();
@@ -154,7 +185,10 @@ function load() {
       const n = parseInt(String(seg.id).replace(/\D/g, ''), 10);
       if (Number.isFinite(n)) segmentSeq = Math.max(segmentSeq, n);
     }
-    return { ...defaultState(), ...parsed };
+    const merged = { ...defaultState(), ...parsed };
+    // Older saves predate the custom size lists, or may only have some shapes set.
+    merged.sizeLists = { ...defaultState().sizeLists, ...(parsed.sizeLists ?? {}) };
+    return merged;
   } catch {
     return null;
   }
@@ -187,8 +221,8 @@ function context(segment) {
     targetFriction: num(state.targetFriction, 1),
     targetVelocity: num(state.targetVelocity, 5),
     maxVelocity: limits.max,
-    roundSizes: sizesFor(segment.shape),
-    rectSizes: RECT_SIZES,
+    roundSizes: sizesForShape(segment.shape),
+    rectSizes: sizeListFor('rect'),
     useStandardSizes: state.useStandardSizes,
     preferredAspect: 1.5,
     maxAspect: num(state.maxAspect, 4),
@@ -314,6 +348,52 @@ function buildDesignBasis() {
   $('#max-aspect').value = state.maxAspect;
   $('#max-height').value = state.maxHeightMm || '';
   $('#room-correction').value = state.roomCorrection;
+
+  syncSizeFields();
+}
+
+/* ------------------------------------------------------------------ *
+ * Custom standard size lists
+ * ------------------------------------------------------------------ */
+
+function syncSizeFields() {
+  $('#sizes-round').value = formatSizeList(state.sizeLists.round);
+  $('#sizes-rect').value = formatSizeList(state.sizeLists.rect);
+  $('#sizes-flex').value = formatSizeList(state.sizeLists.flex);
+  $('#sizes-error').textContent = '';
+}
+
+function bindSizeList(key, selector) {
+  const node = $(selector);
+
+  // Parse on every keystroke so the calculation stays live, but don't rewrite
+  // the field's own value here — reformatting mid-type would throw the caret.
+  node.addEventListener('input', () => {
+    const parsed = parseSizeList(node.value);
+    node.classList.toggle('invalid', node.value.trim() !== '' && parsed.length === 0);
+    $('#sizes-error').textContent =
+      node.value.trim() !== '' && parsed.length === 0
+        ? 'No valid sizes found — using the built-in list until this is fixed.'
+        : '';
+    state.sizeLists[key] = parsed;
+    update();
+  });
+
+  // Tidy the text (sorted, deduped, comma-separated) once the user is done.
+  node.addEventListener('blur', () => {
+    node.classList.remove('invalid');
+    $('#sizes-error').textContent = '';
+    node.value = formatSizeList(sizeListFor(key));
+  });
+}
+
+function resetSizeList(key, selector) {
+  state.sizeLists[key] = [...DEFAULT_SIZE_LISTS[key]];
+  $(selector).value = formatSizeList(state.sizeLists[key]);
+  $(selector).classList.remove('invalid');
+  $('#sizes-error').textContent = '';
+  update();
+  toast('Reset to default sizes');
 }
 
 /* ------------------------------------------------------------------ *
@@ -1061,6 +1141,14 @@ function init() {
     state.useStandardSizes = e.target.checked;
     update();
   });
+
+  bindSizeList('round', '#sizes-round');
+  bindSizeList('rect', '#sizes-rect');
+  bindSizeList('flex', '#sizes-flex');
+  for (const btn of $$('[data-reset-sizes]')) {
+    const key = btn.dataset.resetSizes;
+    btn.addEventListener('click', () => resetSizeList(key, `#sizes-${key}`));
+  }
 
   $('#btn-add-segment').addEventListener('click', () => {
     const last = state.segments[state.segments.length - 1];
