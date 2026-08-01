@@ -204,32 +204,46 @@
     <p class="hint" id="air-hint"></p>
 
     <h3 class="sub-title">Standard duct sizes</h3>
-    <p class="hint">Comma-separated, mm. Calculated sizes snap up to the nearest value in
-    the matching list — edit these to match the stock your supplier actually carries.</p>
+    <p class="hint">Calculated sizes snap up to the nearest value below — tap a size to
+    remove it, or add one to match the stock your supplier actually carries.</p>
 
     <div class="field">
       <div class="field-label-row">
-        <label class="label" for="sizes-round">Circular</label>
+        <span class="label">Circular</span>
         <button class="text-btn" type="button" data-reset-sizes="round">Reset</button>
       </div>
-      <textarea id="sizes-round" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard circular duct sizes in millimetres"></textarea>
+      <div class="chip-row" id="sizes-round-chips" role="list" aria-label="Standard circular duct sizes in millimetres"></div>
+      <div class="chip-add">
+        <input id="sizes-round-add" type="number" inputmode="decimal" min="1" step="1" placeholder="Add size" aria-label="Add a circular duct size in millimetres">
+        <button class="chip-add-btn" type="button" id="sizes-round-add-btn">Add</button>
+      </div>
+      <p class="hint sizes-error" id="sizes-round-error" role="alert"></p>
     </div>
 
     <div class="field">
       <div class="field-label-row">
-        <label class="label" for="sizes-rect">Rectangular</label>
+        <span class="label">Rectangular</span>
         <button class="text-btn" type="button" data-reset-sizes="rect">Reset</button>
       </div>
-      <textarea id="sizes-rect" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard rectangular duct sizes in millimetres"></textarea>
+      <div class="chip-row" id="sizes-rect-chips" role="list" aria-label="Standard rectangular duct sizes in millimetres"></div>
+      <div class="chip-add">
+        <input id="sizes-rect-add" type="number" inputmode="decimal" min="1" step="1" placeholder="Add size" aria-label="Add a rectangular duct size in millimetres">
+        <button class="chip-add-btn" type="button" id="sizes-rect-add-btn">Add</button>
+      </div>
+      <p class="hint sizes-error" id="sizes-rect-error" role="alert"></p>
     </div>
 
     <div class="field">
       <div class="field-label-row">
-        <label class="label" for="sizes-flex">Flexible</label>
+        <span class="label">Flexible</span>
         <button class="text-btn" type="button" data-reset-sizes="flex">Reset</button>
       </div>
-      <textarea id="sizes-flex" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard flexible duct sizes in millimetres"></textarea>
-      <p class="hint" id="sizes-error" role="alert"></p>
+      <div class="chip-row" id="sizes-flex-chips" role="list" aria-label="Standard flexible duct sizes in millimetres"></div>
+      <div class="chip-add">
+        <input id="sizes-flex-add" type="number" inputmode="decimal" min="1" step="1" placeholder="Add size" aria-label="Add a flexible duct size in millimetres">
+        <button class="chip-add-btn" type="button" id="sizes-flex-add-btn">Add</button>
+      </div>
+      <p class="hint sizes-error" id="sizes-flex-error" role="alert"></p>
     </div>
 
     <h3 class="sub-title">Rectangular duct</h3>

@@ -149,16 +149,6 @@ function defaultState() {
   };
 }
 
-/** Parse a free-typed size list: any numbers, deduped and sorted. Empty/invalid input yields []. */
-function parseSizeList(text) {
-  const values = (String(text).match(/\d+(\.\d+)?/g) ?? []).map(Number).filter((n) => n > 0);
-  return [...new Set(values)].sort((a, b) => a - b);
-}
-
-function formatSizeList(list) {
-  return list.join(', ');
-}
-
 /** The size list a segment's shape snaps to; falls back to the shipped default if the
  * user has emptied a list, since an empty list breaks rectangular sizing. */
 function sizeListFor(key) {
@@ -354,46 +344,86 @@ function buildDesignBasis() {
 
 /* ------------------------------------------------------------------ *
  * Custom standard size lists
+ *
+ * Chips instead of a comma-separated text field: iOS's numeric keypad
+ * (inputmode="numeric"/"decimal") has no comma and no space, so there was no
+ * way to separate values on a phone. One-number-at-a-time entry sidesteps
+ * that entirely and suits a touch tool better anyway.
  * ------------------------------------------------------------------ */
 
-function syncSizeFields() {
-  $('#sizes-round').value = formatSizeList(state.sizeLists.round);
-  $('#sizes-rect').value = formatSizeList(state.sizeLists.rect);
-  $('#sizes-flex').value = formatSizeList(state.sizeLists.flex);
-  $('#sizes-error').textContent = '';
+const SIZE_KEYS = ['round', 'rect', 'flex'];
+
+function renderSizeChips(key) {
+  $(`#sizes-${key}-chips`).replaceChildren(
+    ...sizeListFor(key).map((size) =>
+      el('span', { class: 'chip', role: 'listitem' }, [
+        `${size}`,
+        el('button', {
+          type: 'button',
+          'aria-label': `Remove ${size} mm`,
+          text: '×',
+          onclick: () => removeSize(key, size),
+        }),
+      ])
+    )
+  );
 }
 
-function bindSizeList(key, selector) {
-  const node = $(selector);
-
-  // Parse on every keystroke so the calculation stays live, but don't rewrite
-  // the field's own value here — reformatting mid-type would throw the caret.
-  node.addEventListener('input', () => {
-    const parsed = parseSizeList(node.value);
-    node.classList.toggle('invalid', node.value.trim() !== '' && parsed.length === 0);
-    $('#sizes-error').textContent =
-      node.value.trim() !== '' && parsed.length === 0
-        ? 'No valid sizes found — using the built-in list until this is fixed.'
-        : '';
-    state.sizeLists[key] = parsed;
-    update();
-  });
-
-  // Tidy the text (sorted, deduped, comma-separated) once the user is done.
-  node.addEventListener('blur', () => {
-    node.classList.remove('invalid');
-    $('#sizes-error').textContent = '';
-    node.value = formatSizeList(sizeListFor(key));
-  });
+function addSize(key, rawValue) {
+  const errorNode = $(`#sizes-${key}-error`);
+  const n = Math.round(num(rawValue, NaN));
+  if (!Number.isFinite(n) || n <= 0) {
+    errorNode.textContent = 'Enter a size in mm.';
+    return false;
+  }
+  if (state.sizeLists[key].includes(n)) {
+    errorNode.textContent = `${n} mm is already in the list.`;
+    return false;
+  }
+  state.sizeLists[key] = [...state.sizeLists[key], n].sort((a, b) => a - b);
+  errorNode.textContent = '';
+  renderSizeChips(key);
+  update();
+  return true;
 }
 
-function resetSizeList(key, selector) {
+function removeSize(key, value) {
+  state.sizeLists[key] = state.sizeLists[key].filter((v) => v !== value);
+  $(`#sizes-${key}-error`).textContent = '';
+  renderSizeChips(key);
+  update();
+}
+
+function resetSizeList(key) {
   state.sizeLists[key] = [...DEFAULT_SIZE_LISTS[key]];
-  $(selector).value = formatSizeList(state.sizeLists[key]);
-  $(selector).classList.remove('invalid');
-  $('#sizes-error').textContent = '';
+  $(`#sizes-${key}-error`).textContent = '';
+  renderSizeChips(key);
   update();
   toast('Reset to default sizes');
+}
+
+function bindSizeAdd(key) {
+  const input = $(`#sizes-${key}-add`);
+  const commit = () => {
+    if (addSize(key, input.value)) {
+      input.value = '';
+      input.focus();
+    }
+  };
+  $(`#sizes-${key}-add-btn`).addEventListener('click', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit();
+    }
+  });
+  input.addEventListener('input', () => {
+    $(`#sizes-${key}-error`).textContent = '';
+  });
+}
+
+function syncSizeFields() {
+  for (const key of SIZE_KEYS) renderSizeChips(key);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1142,12 +1172,9 @@ function init() {
     update();
   });
 
-  bindSizeList('round', '#sizes-round');
-  bindSizeList('rect', '#sizes-rect');
-  bindSizeList('flex', '#sizes-flex');
+  for (const key of SIZE_KEYS) bindSizeAdd(key);
   for (const btn of $$('[data-reset-sizes]')) {
-    const key = btn.dataset.resetSizes;
-    btn.addEventListener('click', () => resetSizeList(key, `#sizes-${key}`));
+    btn.addEventListener('click', () => resetSizeList(btn.dataset.resetSizes));
   }
 
   $('#btn-add-segment').addEventListener('click', () => {
