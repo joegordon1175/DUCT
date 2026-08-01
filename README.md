@@ -43,8 +43,11 @@ On iOS/Android, "Add to Home Screen" installs it as a standalone app.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — air temperature and altitude (drives density and viscosity),
-maximum aspect ratio, maximum duct height for a ceiling void, and the
-duct-to-room acoustic correction.
+standard duct size lists for circular, rectangular and flexible duct (edit
+these to match what your supplier actually stocks — invalid or emptied lists
+fall back to the shipped defaults so a typo can't break sizing), maximum
+aspect ratio, maximum duct height for a ceiling void, and the duct-to-room
+acoustic correction.
 
 **System allowances** — plant/AHU pressure, fan selection margin, and the
 DW/144 leakage class.

@@ -174,11 +174,49 @@ input[type="number"], input[type="text"]:not(.project), select {
   font-variant-numeric: tabular-nums;
 }
 
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
   border-color: transparent;
 }
+
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.field-label-row .label { margin-bottom: 0; }
+
+.text-btn {
+  flex: none;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.text-btn:active { opacity: 0.6; }
+
+.sizes-input {
+  width: 100%;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  resize: vertical;
+}
+.sizes-input.invalid { border-color: var(--bad); outline: 2px solid color-mix(in srgb, var(--bad) 40%, transparent); outline-offset: -1px; }
 
 /* Strip spinners — the steppers below are the touch target */
 input[type="number"]::-webkit-outer-spin-button,

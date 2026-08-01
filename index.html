@@ -203,6 +203,35 @@
     </div>
     <p class="hint" id="air-hint"></p>
 
+    <h3 class="sub-title">Standard duct sizes</h3>
+    <p class="hint">Comma-separated, mm. Calculated sizes snap up to the nearest value in
+    the matching list — edit these to match the stock your supplier actually carries.</p>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label class="label" for="sizes-round">Circular</label>
+        <button class="text-btn" type="button" data-reset-sizes="round">Reset</button>
+      </div>
+      <textarea id="sizes-round" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard circular duct sizes in millimetres"></textarea>
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label class="label" for="sizes-rect">Rectangular</label>
+        <button class="text-btn" type="button" data-reset-sizes="rect">Reset</button>
+      </div>
+      <textarea id="sizes-rect" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard rectangular duct sizes in millimetres"></textarea>
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label class="label" for="sizes-flex">Flexible</label>
+        <button class="text-btn" type="button" data-reset-sizes="flex">Reset</button>
+      </div>
+      <textarea id="sizes-flex" class="sizes-input" inputmode="numeric" rows="3" aria-label="Standard flexible duct sizes in millimetres"></textarea>
+      <p class="hint" id="sizes-error" role="alert"></p>
+    </div>
+
     <h3 class="sub-title">Rectangular duct</h3>
     <div class="row">
       <div class="field">
