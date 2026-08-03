@@ -22,27 +22,38 @@ On iOS/Android, "Add to Home Screen" installs it as a standalone app.
 
 | Input | Notes |
 |---|---|
-| Space type | Residential / Commercial / Industrial. Sets the friction target, the velocity limits and the noise criterion. |
-| Size on | Constant friction (Pa/m) or constant velocity (m/s). |
-| Target | Pre-filled from the space type, editable. |
+| Space type | Residential / Commercial / Industrial. Each has a **fixed** sizing method — see below — plus its own noise criterion. |
 | Snap to standard sizes | On by default; off gives the exact calculated size. |
+
+The sizing method and its target aren't editable here — they're read-only,
+shown right under the space-type picker, so they can't be changed by accident
+mid-job. Fine-tune the actual numbers in Settings.
+
+| Space type | Sizing method | Why |
+|---|---|---|
+| Residential, Commercial | Constant friction rate (Pa/m) | Standard comfort-ventilation design; velocity is checked afterwards against a recommended/max range, not sized to. |
+| Industrial (kitchen / dust extract) | Constant velocity, as a **minimum** (m/s) | Air moving slower than the minimum lets grease or dust settle out and foul the duct — a fire risk for grease. Standard duct sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
 
 **Per segment** — add as many as the run needs
 
 | Input | Notes |
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
-| Duct role | Main / riser, branch, or runout — each has its own velocity limits. |
+| Duct role | Main / riser, branch, or runout — each has its own velocity target/limit (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limits regardless of role. |
 | Duct type | Circular, rectangular or flexible. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
-| Width override | Rectangular only. Blank = solved from the height and the friction target. |
+| Width override | Rectangular only. Blank = solved from the height and the sizing target. |
 | Straight length | m. |
 | Fittings | Searchable library of ~45 fittings with editable ζ, plus quantity steppers. |
 | Extra fixed loss | Pa, for anything not in the library. |
 
-**Settings** — air temperature and altitude (drives density and viscosity),
+**Settings** — sizing targets per space type (friction target for
+Residential/Commercial; recommended/max velocity by duct role — main, branch,
+runout, and a separate set for flexible duct — for all three space types,
+editable and resettable independently of which space type is active on the
+main page), air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum
@@ -57,11 +68,13 @@ DW/144 leakage class.
 - **Circular / flexible** — one size to determine. Blank sizes automatically;
   a value pins the diameter so you can check a size you already have.
 - **Rectangular** — enter the height to suit the void and the width is solved
-  for the friction target; enter the width and the height is solved; enter
-  both and the size is fixed and simply evaluated.
+  for the sizing target; enter the width and the height is solved; enter both
+  and the size is fixed and simply evaluated.
 - The velocity limit for the space type and duct role always applies on top of
-  the friction target. If the target friction would give a duct that runs too
-  fast, the app enlarges it until the velocity is within limits.
+  the sizing target. In friction mode, if the target friction would give a
+  duct that runs too fast, the app enlarges it until the velocity is within
+  limits. In velocity mode the target *is* a velocity, so this constraint is
+  built in rather than layered on top — see the sizing-method table above.
 
 ## Outputs
 
@@ -72,12 +85,18 @@ straight loss, fittings loss, segment total, regenerated noise (dBA), Reynolds
 number, friction factor, equivalent/hydraulic diameter, aspect ratio, free
 area, equivalent length and duct surface area.
 
-For the run: total branch pressure drop, fan duty with margin, max velocity,
-sound power and estimated room level, run length, duct surface area, DW/144
-pressure class, and estimated leakage in l/s and as a percentage of duty.
+For the run: total branch pressure drop, fan duty with margin, the velocity
+that matters for the sizing mode in play (max for friction-sized runs, min for
+velocity-sized ones — see below), sound power and estimated room level, run
+length, duct surface area, DW/144 pressure class, and estimated leakage in
+l/s and as a percentage of duty.
 
-Colour-coded flags call out velocities over the limit, excessive aspect
-ratios, flexible runs beyond 3 m, and noise above the space's criterion.
+Colour-coded flags call out velocities outside the limit (over the max in
+both modes; under the minimum too in velocity mode, since that's the failure
+that lets grease or dust settle out), excessive aspect ratios, flexible runs
+beyond 3 m, flexible duct selected under Industrial (not normally permitted
+for grease extract — check local fire code), and noise above the space's
+criterion.
 
 Export as CSV, or copy a plain-text summary for an email or a report.
 
@@ -85,7 +104,7 @@ Export as CSV, or copy a plain-text summary for an email or a report.
 
 ## Calculation engine
 
-`js/engine.js` is pure and DOM-free; `test/engine.test.mjs` covers it with 40
+`js/engine.js` is pure and DOM-free; `test/engine.test.mjs` covers it with 48
 tests, including checks against published reference values.
 
 **Air properties.** Barometric pressure from the ISA troposphere model,
@@ -107,6 +126,21 @@ on an equal-friction, equal-flow basis — the friction rate is that of the
 equivalent round duct. Velocity, velocity pressure and noise use the *actual*
 face area, because that is what the air in the duct is really doing. Verified
 against the ASHRAE equivalent-diameter table.
+
+**Two sizing modes.** Friction-mode spaces (Residential, Commercial) size to
+a constant friction rate; velocity is only ever checked afterwards, so
+standard duct sizes snap *up* — always safe, since a bigger duct only ever
+lowers both the friction rate and the velocity further from their targets.
+Velocity-mode spaces (Industrial — kitchen/dust extract) size to a target
+velocity that's a **minimum**, not a ceiling, so the same snap-up rule would
+be wrong: rounding up to the next standard size lowers the velocity, which is
+exactly the direction that lets grease or dust settle out and foul the duct.
+Standard sizes snap *down* instead (`snapDown`/`snapFloor` in engine.js),
+landing on the largest standard size that still meets the minimum, while a
+second bound (the diameter at the *maximum* velocity) stops it snapping down
+so far that the max is exceeded instead. Where no standard size fits between
+the two bounds, respecting the maximum takes priority over holding the
+minimum, since exceeding it risks duct erosion.
 
 **Fittings.** Velocity-pressure method, `Δp = ζ · ρv²/2`, with ζ referred to
 the segment velocity. Fixed-loss items (grilles, silencers, filters, coils)
@@ -139,11 +173,15 @@ pressure and velocity, with leakage `q = k · p^0.65` per m² of duct surface
 
 ### Reference data
 
-Velocity limits follow CIBSE Guide B3 / ASHRAE recommended maxima for
-noise-sensitive design, roughness values follow the ASHRAE Fundamentals duct
-roughness table, and loss coefficients are typical published values. They are
-sensible defaults for a first pass, not a project specification — check them
-against the job's spec before issuing anything.
+Friction-mode velocity limits follow CIBSE Guide B3 / ASHRAE recommended
+maxima for noise-sensitive design; velocity-mode (Industrial) minimum
+transport velocities are indicative defaults pending confirmation against
+DW/172 for kitchen grease extract or COSHH/ACGIH transport-velocity tables
+for the actual dust loading. Roughness values follow the ASHRAE Fundamentals
+duct roughness table, and loss coefficients are typical published values.
+They are sensible defaults for a first pass, not a project specification —
+check them against the job's spec before issuing anything, and use Settings
+to fine-tune any of them per space type and duct role.
 
 ---
 

@@ -60,11 +60,31 @@ export const FLEX_CONDITIONS = [
 ];
 
 /* ------------------------------------------------------------------ *
- * Space types & duct roles — velocity and friction design limits
+ * Space types & duct roles — sizing method, and velocity/friction targets
  * ------------------------------------------------------------------ *
- * Velocities after CIBSE Guide B3 / ASHRAE recommended maxima for
- * noise-sensitive design. `recommended` is the target, `max` the point at
- * which the app flags the selection.
+ * Each space type has a FIXED sizing method — this isn't a free per-project
+ * toggle, because the two methods serve different physical requirements:
+ *
+ *   'friction' (Residential, Commercial) — sizes to a constant friction
+ *   rate. Velocity is only ever a check afterwards: `recommended` is a soft
+ *   comfort/noise ceiling, `max` a hard one.
+ *
+ *   'velocity' (Industrial — kitchen extract / dust extract) — sizes to
+ *   `recommended` as a MINIMUM transport velocity instead, and standard
+ *   sizes snap down rather than up (see `snapFloor` in engine.js) so the
+ *   built duct can't fall below it. Air moving slower than this lets grease
+ *   or dust settle out and foul the duct — for grease that's a fire risk,
+ *   not just a maintenance one. `max` here caps erosion and noise instead.
+ *
+ * `roles` covers the three duct positions (main/branch/runout) plus a
+ * separate `flex` entry: flexible duct is rougher and usually shorter, so it
+ * gets its own limits applied whenever a segment's shape is 'flexible',
+ * regardless of which role is selected for it.
+ *
+ * These are indicative starting points (CIBSE Guide B3 / ASHRAE recommended
+ * maxima for the friction-mode spaces; DW/172-style kitchen extract and
+ * COSHH/ACGIH-style dust transport velocities for Industrial) — the app
+ * lets every number here be edited and reset per space type in Settings.
  */
 
 export const SPACE_TYPES = [
@@ -72,6 +92,8 @@ export const SPACE_TYPES = [
     id: 'residential',
     name: 'Residential',
     short: 'Residential',
+    useCase: 'Homes & apartments',
+    sizingMethod: 'friction',
     targetFriction: 0.8, // Pa/m
     noiseLimitDba: 30, // ≈ NR 25
     noiseCriterion: 'NR 25',
@@ -79,12 +101,15 @@ export const SPACE_TYPES = [
       main: { recommended: 4.0, max: 5.0 },
       branch: { recommended: 3.0, max: 3.5 },
       runout: { recommended: 2.0, max: 2.5 },
+      flex: { recommended: 2.0, max: 2.5 },
     },
   },
   {
     id: 'commercial',
     name: 'Commercial',
     short: 'Commercial',
+    useCase: 'Offices, retail & general ventilation',
+    sizingMethod: 'friction',
     targetFriction: 1.0,
     noiseLimitDba: 40, // ≈ NR 35
     noiseCriterion: 'NR 35',
@@ -92,19 +117,26 @@ export const SPACE_TYPES = [
       main: { recommended: 6.0, max: 8.0 },
       branch: { recommended: 4.5, max: 6.0 },
       runout: { recommended: 3.0, max: 4.0 },
+      flex: { recommended: 3.0, max: 4.0 },
     },
   },
   {
     id: 'industrial',
     name: 'Industrial',
     short: 'Industrial',
-    targetFriction: 1.5,
+    useCase: 'Kitchen & dust extract',
+    sizingMethod: 'velocity',
     noiseLimitDba: 50, // ≈ NR 45
     noiseCriterion: 'NR 45',
     roles: {
-      main: { recommended: 9.0, max: 12.0 },
-      branch: { recommended: 7.0, max: 9.0 },
-      runout: { recommended: 5.0, max: 6.0 },
+      // "recommended" is a MINIMUM transport velocity, not a soft ceiling —
+      // see the file-level note above. Confirm against DW/172 for kitchen
+      // grease extract, or COSHH/ACGIH transport velocities for the actual
+      // dust loading, before specifying.
+      main: { recommended: 10.0, max: 20.0 },
+      branch: { recommended: 10.0, max: 20.0 },
+      runout: { recommended: 10.0, max: 18.0 },
+      flex: { recommended: 10.0, max: 18.0 },
     },
   },
 ];
@@ -125,9 +157,15 @@ export function spaceType(id) {
   return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[1];
 }
 
-export function velocityLimits(spaceId, roleId) {
+/**
+ * Velocity limits for a space type + duct role. Pass `shape: 'flexible'` (or
+ * any shape) to pick the role-specific limit, or leave it out — flexible
+ * duct's dedicated `flex` limits apply whenever `shape` is 'flexible'.
+ */
+export function velocityLimits(spaceId, roleId, shape) {
   const space = spaceType(spaceId);
-  return space.roles[roleId] ?? space.roles.branch;
+  const key = shape === 'flexible' ? 'flex' : roleId;
+  return space.roles[key] ?? space.roles.branch;
 }
 
 export function material(id) {
