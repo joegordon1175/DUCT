@@ -12,6 +12,8 @@ import {
   diameterForFriction,
   diameterForVelocity,
   snapUp,
+  snapDown,
+  snapFloor,
   selectRectangular,
   regeneratedNoise,
   combineLevels,
@@ -166,6 +168,23 @@ test('snapUp picks the next standard size', () => {
   assert.equal(snapUp(410, RECT_SIZES), 450);
 });
 
+test('snapDown picks the previous standard size', () => {
+  assert.equal(snapDown(316, ROUND_SIZES), 315);
+  assert.equal(snapDown(315, ROUND_SIZES), 315);
+  assert.equal(snapDown(300, ROUND_SIZES), 280);
+  assert.equal(snapDown(50, ROUND_SIZES), 50, 'floors at 50 mm when smaller than every standard size');
+});
+
+test('snapFloor stays within the [floorMin, idealMax] range', () => {
+  // Plenty of standard sizes between the bounds — picks the largest ≤ idealMax.
+  assert.equal(snapFloor(380, 300, ROUND_SIZES), 355);
+  // idealMax itself is a standard size — used exactly.
+  assert.equal(snapFloor(355, 300, ROUND_SIZES), 355);
+  // Sparse list where nothing between the bounds exists: falls back to
+  // respecting the tighter (max-velocity) bound over the minimum.
+  assert.equal(snapFloor(320, 310, [200, 500]), 500);
+});
+
 test('rectangular selection respects the aspect limit and area floor', () => {
   const picked = selectRectangular(457, 0, RECT_SIZES, { maxAspect: 4, preferredAspect: 1.5 });
   const aspect = Math.max(picked.width, picked.height) / Math.min(picked.width, picked.height);
@@ -180,6 +199,16 @@ test('rectangular selection honours a ceiling void height limit', () => {
   const picked = selectRectangular(457, 0, RECT_SIZES, { maxHeightMm: 250 });
   assert.ok(picked.height <= 250, `height ${picked.height} fits the void`);
   assert.ok(equivalentDiameter(picked.width, picked.height) >= 457);
+});
+
+test('rectangular floor-mode selection never exceeds the target equivalent diameter', () => {
+  // direction:'down' must never let De run past requiredDeMm, since that
+  // would drop velocity below the minimum the caller is sizing for.
+  const picked = selectRectangular(457, 0, RECT_SIZES, { direction: 'down' });
+  assert.ok(
+    equivalentDiameter(picked.width, picked.height) <= 457 + 1e-6,
+    `De ${equivalentDiameter(picked.width, picked.height)} must not exceed 457`
+  );
 });
 
 /* ---------------------------------------------------------------- *
@@ -279,6 +308,61 @@ test('velocity cap overrides the friction target when it binds', () => {
   const free = calcSegment({ airflowLps: 500, shape: 'circular', lengthM: 1 }, ctx({ maxVelocity: 20 }));
   assert.ok(capped.heightMm > free.heightMm, 'cap enlarges the duct');
   assert.ok(capped.velocity <= 2.01, `velocity ${capped.velocity} respects the cap`);
+});
+
+/* ---------------------------------------------------------------- *
+ * Floor-mode (constant velocity, minimum transport velocity) sizing —
+ * grease/dust extract, where the failure mode is velocity too LOW, so
+ * standard sizes must snap down rather than up.
+ * ---------------------------------------------------------------- */
+
+test('naive snap-up would violate a minimum transport velocity — the bug floor mode fixes', () => {
+  // 300 l/s at exactly the 10 m/s minimum needs Ø195.5; the old rule (always
+  // snap up) would land on Ø200, which undershoots the minimum.
+  const undershoot = roundHydraulics(0.3, 0.2, 0.00009, STANDARD_AIR).velocity;
+  assert.ok(undershoot < 10, `Ø200 gives ${undershoot.toFixed(2)} m/s, below the 10 m/s minimum it was meant to hold`);
+});
+
+test('floor-mode circular sizing snaps down and holds the minimum velocity', () => {
+  const r = calcSegment(
+    { airflowLps: 300, shape: 'circular', lengthM: 5 },
+    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+  );
+  assert.equal(r.heightMm, 180, 'snaps DOWN to Ø180, not up to Ø200');
+  assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
+  assert.ok(r.velocity <= 20 + 1e-6, `velocity ${r.velocity} must respect the 20 m/s cap`);
+});
+
+test('floor-mode rectangular auto-select holds the minimum velocity', () => {
+  const r = calcSegment(
+    { airflowLps: 300, shape: 'rectangular', lengthM: 5 },
+    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+  );
+  assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
+  assert.ok(r.velocity <= 20 + 1e-6, `velocity ${r.velocity} must respect the 20 m/s cap`);
+});
+
+test('floor-mode rectangular height override solves a width that holds the minimum velocity', () => {
+  const r = calcSegment(
+    { airflowLps: 300, shape: 'rectangular', lengthM: 5, heightMm: 150 },
+    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+  );
+  assert.equal(r.heightMm, 150, 'height held');
+  assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
+  assert.ok(r.velocity <= 20 + 1e-6, `velocity ${r.velocity} must respect the 20 m/s cap`);
+});
+
+test('floor-mode sizing without standard sizes rounds the diameter down, not up', () => {
+  // Ceiling mode rounds a fractional mm UP (safe: never undersizes the duct).
+  // Floor mode must round DOWN instead, or the same sub-mm rounding that's
+  // harmless for a friction target would shave the minimum transport
+  // velocity below its target.
+  const r = calcSegment(
+    { airflowLps: 300, shape: 'circular', lengthM: 5 },
+    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20, useStandardSizes: false })
+  );
+  close(r.heightMm, 195, 0.5, 'floors the exact 195.44 mm diameter to 195 mm');
+  assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
 });
 
 test('rectangular height override drives the width', () => {

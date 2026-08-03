@@ -13,6 +13,10 @@
  *     "equal friction, equal flow".
  *   - Loss-coefficient (velocity-pressure) method for fittings.
  *   - Empirical A-weighted regenerated-noise estimate (CIBSE/Woods form).
+ *   - Two sizing modes: "ceiling" (constant friction rate; velocity is only
+ *     ever checked, never sized to) and "floor" (constant velocity sized to
+ *     a MINIMUM, e.g. grease/dust extract, where standard sizes snap down
+ *     instead of up so the built duct can't fall below the target).
  */
 
 export const R_AIR = 287.055; // J/(kg·K), dry air
@@ -199,22 +203,58 @@ export function snapUp(value, list) {
   return Math.ceil(value / 50) * 50;
 }
 
+/** Largest value in `list` that is <= value; falls back to a 50 mm round-down,
+ * floored at 50 mm so it never returns zero or negative. */
+export function snapDown(value, list) {
+  let best = null;
+  for (const candidate of list) {
+    if (candidate <= value + 1e-9) best = candidate;
+  }
+  if (best !== null) return best;
+  return Math.max(50, Math.floor(value / 50) * 50);
+}
+
+/**
+ * Standard size for "floor" sizing, where the target is a minimum velocity to
+ * hold rather than a maximum not to exceed — grease/dust extract, sized so
+ * material stays entrained. Snapping *up* (the normal rule) would silently
+ * drop the actual velocity below the target, defeating the point of sizing
+ * on velocity at all. Picks the largest standard size that does not exceed
+ * `idealMax` (the diameter/width at the target velocity); if that would also
+ * fall below `floorMin` (the diameter/width at the max-velocity cap — a very
+ * coarse size list skipping the whole valid range), falls back to the
+ * smallest size that respects `floorMin` instead, since not exceeding the
+ * velocity cap takes priority over holding the minimum.
+ */
+export function snapFloor(idealMax, floorMin, list) {
+  const down = snapDown(idealMax, list);
+  return down >= floorMin - 1e-9 ? down : snapUp(floorMin, list);
+}
+
 /**
  * Choose a rectangular width × height meeting a required equivalent diameter
  * and a minimum free area, preferring aspect ratios near `preferredAspect`
  * and never exceeding `maxAspect`.
  *
+ * @param {object} opts
+ *   @param {'up'|'down'} [opts.direction] 'up' (default) snaps each candidate
+ *     width up to meet the target — correct when the target is a ceiling (a
+ *     friction rate, or a maximum velocity). 'down' snaps down instead, for
+ *     "floor" sizing where the target is a minimum velocity to hold and
+ *     rounding up would push the actual velocity below it.
  * @returns {{width:number, height:number}} mm
  */
 export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
-  const { preferredAspect = 1.5, maxAspect = 4, maxHeightMm = Infinity } = opts;
+  const { preferredAspect = 1.5, maxAspect = 4, maxHeightMm = Infinity, direction = 'up' } = opts;
+  const pickWidth = (wExact, wForArea) =>
+    direction === 'down' ? snapFloor(wExact, wForArea, sizes) : snapUp(Math.max(wExact, wForArea), sizes);
   let best = null;
 
   for (const h of sizes) {
     if (h > maxHeightMm) continue;
     const wExact = widthForEquivalentDiameter(h, requiredDeMm);
     const wForArea = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
-    const w = snapUp(Math.max(wExact, wForArea), sizes);
+    const w = pickWidth(wExact, wForArea);
     const aspect = Math.max(w, h) / Math.min(w, h);
     if (aspect > maxAspect) continue;
 
@@ -231,7 +271,7 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
   const h = Math.min(maxHeightMm, sizes[sizes.length - 1]);
   const wExact = widthForEquivalentDiameter(h, requiredDeMm);
   const wForArea = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
-  return { width: snapUp(Math.max(wExact, wForArea), sizes), height: h };
+  return { width: pickWidth(wExact, wForArea), height: h };
 }
 
 /* ------------------------------------------------------------------ *
@@ -311,10 +351,15 @@ export function pressureClass(staticPa, velocity) {
  *   @param {object} ctx.air           from `airProperties`
  *   @param {number} ctx.roughness     absolute roughness ε, m
  *   @param {number} ctx.flexFactor    flexible-duct compression multiplier
- *   @param {'friction'|'velocity'} ctx.method
- *   @param {number} ctx.targetFriction  Pa/m
- *   @param {number} ctx.targetVelocity  m/s
- *   @param {number} ctx.maxVelocity     m/s, hard cap for sizing
+ *   @param {'friction'|'velocity'} ctx.method  'friction' sizes to a target
+ *     friction rate ("ceiling" mode — velocity limits are a check, not a
+ *     sizing input). 'velocity' sizes to `targetVelocity` as a MINIMUM
+ *     ("floor" mode — grease/dust extract, where too slow lets material
+ *     settle out of the airstream) and snaps standard sizes down instead of
+ *     up so the built duct never falls below it.
+ *   @param {number} ctx.targetFriction  Pa/m, used when method is 'friction'
+ *   @param {number} ctx.targetVelocity  m/s, used when method is 'velocity'
+ *   @param {number} ctx.maxVelocity     m/s, hard cap for sizing in both modes
  *   @param {number[]} ctx.roundSizes, ctx.rectSizes   mm
  *   @param {boolean} ctx.useStandardSizes
  *   @param {number} ctx.preferredAspect, ctx.maxAspect, ctx.maxHeightMm
@@ -327,18 +372,21 @@ export function calcSegment(seg, ctx) {
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
+  const floorSizing = ctx.method === 'velocity'; // target is a minimum, not a ceiling
 
   const heightOverride = positive(seg.heightMm);
   const widthOverride = rectangular ? positive(seg.widthMm) : null;
 
   // --- required equivalent diameter from the sizing rule -----------------
-  const dFriction =
-    ctx.method === 'velocity'
-      ? 0
-      : diameterForFriction(flow, ctx.targetFriction, roughness * flexFactor, air);
-  const dTargetVel =
-    ctx.method === 'velocity' ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
+  const dFriction = floorSizing
+    ? 0
+    : diameterForFriction(flow, ctx.targetFriction, roughness * flexFactor, air);
+  const dTargetVel = floorSizing ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
   const dMaxVel = diameterForVelocity(flow, ctx.maxVelocity);
+  // In floor mode dTargetVel (diameter at the slower, minimum velocity) is the
+  // larger of the two and so already wins this max() — requiredD lands on the
+  // loose end of the valid [dMaxVel, dTargetVel] diameter range, exactly the
+  // ceiling that snapFloor below must not snap past.
   const requiredD = Math.max(dFriction, dTargetVel, dMaxVel); // m
   const minArea = ctx.maxVelocity > 0 ? flow / ctx.maxVelocity : 0; // m²
 
@@ -356,21 +404,34 @@ export function calcSegment(seg, ctx) {
       heightMm = heightOverride;
       const wExact = widthForEquivalentDiameter(heightMm, requiredD * 1000);
       const wArea = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
-      const w = Math.max(wExact, wArea);
-      widthMm = useStandard ? snapUp(w, sizes) : Math.ceil(w);
+      if (!useStandard) {
+        // Round to a fabricable whole mm in whichever direction stays safe:
+        // up for a ceiling target, down for a floor (minimum-velocity) one.
+        widthMm = floorSizing ? Math.floor(Math.max(wExact, wArea)) : Math.ceil(Math.max(wExact, wArea));
+      } else if (floorSizing) {
+        widthMm = snapFloor(wExact, wArea, sizes);
+      } else {
+        widthMm = snapUp(Math.max(wExact, wArea), sizes);
+      }
       sizedBy = 'height overridden';
     } else if (widthOverride) {
       widthMm = widthOverride;
       const hExact = widthForEquivalentDiameter(widthMm, requiredD * 1000); // symmetric
       const hArea = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
-      const h = Math.max(hExact, hArea);
-      heightMm = useStandard ? snapUp(h, sizes) : Math.ceil(h);
+      if (!useStandard) {
+        heightMm = floorSizing ? Math.floor(Math.max(hExact, hArea)) : Math.ceil(Math.max(hExact, hArea));
+      } else if (floorSizing) {
+        heightMm = snapFloor(hExact, hArea, sizes);
+      } else {
+        heightMm = snapUp(Math.max(hExact, hArea), sizes);
+      }
       sizedBy = 'width overridden';
     } else {
       const picked = selectRectangular(requiredD * 1000, minArea * 1e6, sizes, {
         preferredAspect: ctx.preferredAspect,
         maxAspect: ctx.maxAspect,
         maxHeightMm: ctx.maxHeightMm,
+        direction: floorSizing ? 'down' : 'up',
       });
       widthMm = picked.width;
       heightMm = picked.height;
@@ -379,10 +440,12 @@ export function calcSegment(seg, ctx) {
     if (heightOverride) {
       heightMm = heightOverride;
       sizedBy = 'diameter overridden';
+    } else if (!useStandard) {
+      heightMm = floorSizing ? Math.floor(requiredD * 1000) : Math.ceil(requiredD * 1000);
+    } else if (floorSizing) {
+      heightMm = snapFloor(requiredD * 1000, dMaxVel * 1000, sizes);
     } else {
-      heightMm = useStandard
-        ? snapUp(requiredD * 1000, sizes)
-        : Math.ceil(requiredD * 1000);
+      heightMm = snapUp(requiredD * 1000, sizes);
     }
   }
 
@@ -484,6 +547,11 @@ export function calcRun(results, opts = {}) {
   const ductPa = results.reduce((sum, r) => sum + r.totalLoss, 0);
   const totalPa = ductPa + Math.max(plantPa, 0);
   const maxVelocity = results.reduce((m, r) => Math.max(m, r.velocity), 0);
+  // For floor-sized runs (grease/dust extract) the weakest link is the
+  // SLOWEST segment, not the fastest — that's the one at risk of settling.
+  const minVelocity = results.length
+    ? results.reduce((m, r) => Math.min(m, r.velocity), Infinity)
+    : 0;
   const surfaceArea = results.reduce((sum, r) => sum + r.surfaceArea, 0);
   const lengthM = results.reduce((sum, r) => sum + r.lengthM, 0);
   const noiseLwA = combineLevels(results.map((r) => r.noiseLwA));
@@ -500,6 +568,7 @@ export function calcRun(results, opts = {}) {
     fanDutyPa: totalPa * (1 + Math.max(marginPct, 0) / 100),
     marginPct,
     maxVelocity,
+    minVelocity,
     lengthM,
     surfaceArea,
     noiseLwA,

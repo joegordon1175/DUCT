@@ -19,7 +19,6 @@ import {
   materialsFor,
   material,
   spaceType,
-  velocityLimits,
   ROUND_SIZES,
   RECT_SIZES,
   FLEX_SIZES,
@@ -27,6 +26,24 @@ import {
 
 /** Standard duct sizes are user-editable; these are the shipped starting points. */
 const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES };
+
+/** Duct roles a velocity target/limit applies to: the three positions plus a
+ * dedicated entry for flexible duct, used regardless of the segment's role. */
+const VEL_ROLE_ORDER = ['main', 'branch', 'runout', 'flex'];
+const VEL_ROLE_LABELS = { main: 'Main', branch: 'Branch', runout: 'Runout', flex: 'Flexible' };
+
+/** Sizing targets are per-space-type and user-editable (fine-tuned in Settings);
+ * these are the shipped starting points, cloned from data.js's reference values. */
+const DEFAULT_VELOCITY_LIMITS = Object.fromEntries(
+  SPACE_TYPES.map((space) => [
+    space.id,
+    Object.fromEntries(VEL_ROLE_ORDER.map((role) => [role, { ...space.roles[role] }])),
+  ])
+);
+
+const DEFAULT_FRICTION_TARGETS = Object.fromEntries(
+  SPACE_TYPES.filter((s) => s.sizingMethod === 'friction').map((s) => [s.id, s.targetFriction])
+);
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -128,9 +145,6 @@ function defaultState() {
   return {
     project: '',
     spaceTypeId: 'commercial',
-    method: 'friction',
-    targetFriction: spaceType('commercial').targetFriction,
-    targetVelocity: 5,
     useStandardSizes: true,
     tempC: 20,
     altitudeM: 0,
@@ -145,6 +159,9 @@ function defaultState() {
       rect: [...DEFAULT_SIZE_LISTS.rect],
       flex: [...DEFAULT_SIZE_LISTS.flex],
     },
+    // Sizing method is fixed per space type (see data.js) — not stored here.
+    frictionTargets: { ...DEFAULT_FRICTION_TARGETS },
+    velocityLimits: JSON.parse(JSON.stringify(DEFAULT_VELOCITY_LIMITS)),
     segments: [newSegment()],
   };
 }
@@ -162,6 +179,25 @@ function sizesForShape(shape) {
   return sizeListFor('round');
 }
 
+/** Friction target for a space that sizes on constant friction; falls back to
+ * the shipped default if the field has been emptied or broken. */
+function frictionTargetFor(spaceId) {
+  const v = state.frictionTargets?.[spaceId];
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_FRICTION_TARGETS[spaceId] ?? 1;
+}
+
+/** Velocity limits for a space type + duct role ('flex' for flexible duct,
+ * regardless of the segment's selected role) — falls back to the shipped
+ * default if a field has been emptied or broken. */
+function velocityLimitsFor(spaceId, roleKey) {
+  const rec = state.velocityLimits?.[spaceId]?.[roleKey];
+  const def = DEFAULT_VELOCITY_LIMITS[spaceId]?.[roleKey] ?? DEFAULT_VELOCITY_LIMITS.commercial.branch;
+  return {
+    recommended: Number.isFinite(rec?.recommended) && rec.recommended > 0 ? rec.recommended : def.recommended,
+    max: Number.isFinite(rec?.max) && rec.max > 0 ? rec.max : def.max,
+  };
+}
+
 let state = load() ?? defaultState();
 
 function load() {
@@ -175,9 +211,24 @@ function load() {
       const n = parseInt(String(seg.id).replace(/\D/g, ''), 10);
       if (Number.isFinite(n)) segmentSeq = Math.max(segmentSeq, n);
     }
-    const merged = { ...defaultState(), ...parsed };
+    const defaults = defaultState();
+    const merged = { ...defaults, ...parsed };
     // Older saves predate the custom size lists, or may only have some shapes set.
-    merged.sizeLists = { ...defaultState().sizeLists, ...(parsed.sizeLists ?? {}) };
+    merged.sizeLists = { ...defaults.sizeLists, ...(parsed.sizeLists ?? {}) };
+    // Older saves predate per-space sizing targets entirely.
+    merged.frictionTargets = { ...defaults.frictionTargets, ...(parsed.frictionTargets ?? {}) };
+    merged.velocityLimits = {};
+    for (const spaceId of Object.keys(defaults.velocityLimits)) {
+      merged.velocityLimits[spaceId] = {
+        ...defaults.velocityLimits[spaceId],
+        ...(parsed.velocityLimits?.[spaceId] ?? {}),
+      };
+    }
+    // Sizing method and its single global target used to be flat, user-set
+    // fields; both are now fixed per space type and live in the maps above.
+    delete merged.method;
+    delete merged.targetFriction;
+    delete merged.targetVelocity;
     return merged;
   } catch {
     return null;
@@ -201,15 +252,19 @@ function context(segment) {
   const mat = material(segment.materialId);
   const flex =
     FLEX_CONDITIONS.find((c) => c.id === segment.flexCondition) ?? FLEX_CONDITIONS[0];
-  const limits = velocityLimits(state.spaceTypeId, segment.role);
+  const space = spaceType(state.spaceTypeId);
+  const roleKey = segment.shape === 'flexible' ? 'flex' : segment.role;
+  const limits = velocityLimitsFor(state.spaceTypeId, roleKey);
 
   return {
     air,
     roughness: mat.roughnessMm / 1000,
     flexFactor: flex.factor,
-    method: state.method,
-    targetFriction: num(state.targetFriction, 1),
-    targetVelocity: num(state.targetVelocity, 5),
+    // Fixed per space type — see data.js. 'velocity' sizes to `limits.recommended`
+    // as a MINIMUM (engine.js snaps standard sizes down, not up, to hold it).
+    method: space.sizingMethod,
+    targetFriction: frictionTargetFor(state.spaceTypeId),
+    targetVelocity: limits.recommended,
     maxVelocity: limits.max,
     roundSizes: sizesForShape(segment.shape),
     rectSizes: sizeListFor('rect'),
@@ -218,6 +273,7 @@ function context(segment) {
     maxAspect: num(state.maxAspect, 4),
     maxHeightMm: num(state.maxHeightMm, 0) > 0 ? num(state.maxHeightMm) : Infinity,
     limits,
+    roleKey,
   };
 }
 
@@ -258,12 +314,19 @@ function compute() {
   return { results, run, air: airProperties(num(state.tempC, 20), num(state.altitudeM, 0)) };
 }
 
-/** Velocity status against the space/role limits. */
-function velocityStatus(velocity, limits) {
+/**
+ * Velocity status against the space/role limits.
+ *
+ * Ceiling spaces (friction-sized) flag going OVER the recommended/max.
+ * Floor spaces (velocity-sized — grease/dust extract) flag going UNDER the
+ * minimum just as seriously as over the max, since that's the failure mode
+ * that lets material settle out and foul the duct.
+ */
+function velocityStatus(velocity, limits, isFloor) {
   if (!(velocity > 0)) return 'info';
   if (velocity > limits.max) return 'bad';
-  if (velocity > limits.recommended) return 'warn';
-  return 'ok';
+  if (isFloor) return velocity < limits.recommended ? 'bad' : 'ok';
+  return velocity > limits.recommended ? 'warn' : 'ok';
 }
 
 function noiseStatus(dba, limitDba) {
@@ -294,40 +357,12 @@ function buildSegmentedControl(container, name, options, selected, onChange) {
   );
 }
 
-/** Only the target the chosen sizing method actually uses is worth showing. */
-function syncMethodFields() {
-  $('#field-friction').hidden = state.method !== 'friction';
-  $('#field-velocity').hidden = state.method !== 'velocity';
-}
-
 function buildDesignBasis() {
   buildSegmentedControl($('#space-group'), 'space', SPACE_TYPES, state.spaceTypeId, (id) => {
     state.spaceTypeId = id;
-    // Space type sets the friction target; it stays editable afterwards.
-    state.targetFriction = spaceType(id).targetFriction;
-    $('#target-friction').value = state.targetFriction;
     renderAll();
   });
 
-  buildSegmentedControl(
-    $('#method'),
-    'method',
-    [
-      { id: 'friction', name: 'Constant friction', short: 'Constant friction' },
-      { id: 'velocity', name: 'Constant velocity', short: 'Constant velocity' },
-    ],
-    state.method,
-    (id) => {
-      state.method = id;
-      syncMethodFields();
-      renderAll();
-    }
-  );
-
-  syncMethodFields();
-
-  $('#target-friction').value = state.targetFriction;
-  $('#target-velocity').value = state.targetVelocity;
   $('#standard-sizes').checked = state.useStandardSizes;
   $('#project').value = state.project;
   $('#plant-pa').value = state.plantPa;
@@ -424,6 +459,75 @@ function bindSizeAdd(key) {
 
 function syncSizeFields() {
   for (const key of SIZE_KEYS) renderSizeChips(key);
+}
+
+/* ------------------------------------------------------------------ *
+ * Sizing targets (Settings)
+ *
+ * Sizing method is fixed per space type and isn't user-choosable — but the
+ * numbers behind it (friction target; recommended/max velocity per duct
+ * role, plus a dedicated set for flexible duct) are, so accidental changes
+ * mid-job don't happen from the main page. `settingsSpaceId` is local to the
+ * sheet — switching space type here to peek at another space's numbers
+ * doesn't change the active calculation; it's reset to match whenever the
+ * sheet is (re)opened.
+ * ------------------------------------------------------------------ */
+
+let settingsSpaceId = state.spaceTypeId;
+
+function renderSettingsTargets() {
+  const space = spaceType(settingsSpaceId);
+  const isFloor = space.sizingMethod === 'velocity';
+
+  buildSegmentedControl($('#settings-space-group'), 'settings-space', SPACE_TYPES, settingsSpaceId, (id) => {
+    settingsSpaceId = id;
+    renderSettingsTargets();
+  });
+
+  $('#settings-method-hint').textContent = isFloor
+    ? `${space.name} (${space.useCase}) sizes to a minimum transport velocity — locked; choose the space type on the main page.`
+    : `${space.name} (${space.useCase}) sizes to a constant friction rate — locked; choose the space type on the main page.`;
+
+  $('#settings-friction-field').hidden = isFloor;
+  if (!isFloor) $('#settings-target-friction').value = frictionTargetFor(settingsSpaceId);
+
+  $('#settings-velocity-matrix').replaceChildren(
+    el('div', { class: 'vel-matrix-head' }, [
+      el('span'),
+      el('span', { text: isFloor ? 'Min m/s' : 'Target m/s' }),
+      el('span', { text: 'Max m/s' }),
+    ]),
+    ...VEL_ROLE_ORDER.map((roleKey) => {
+      const limits = velocityLimitsFor(settingsSpaceId, roleKey);
+      return el('div', { class: 'vel-row' }, [
+        el('span', { class: 'vel-role', text: VEL_ROLE_LABELS[roleKey] }),
+        el('input', {
+          type: 'number',
+          inputmode: 'decimal',
+          step: '0.5',
+          min: '0',
+          value: limits.recommended,
+          'aria-label': `${space.name} ${VEL_ROLE_LABELS[roleKey]} ${isFloor ? 'minimum' : 'target'} velocity`,
+          oninput: (e) => {
+            state.velocityLimits[settingsSpaceId][roleKey].recommended = num(e.target.value, limits.recommended);
+            update();
+          },
+        }),
+        el('input', {
+          type: 'number',
+          inputmode: 'decimal',
+          step: '0.5',
+          min: '0',
+          value: limits.max,
+          'aria-label': `${space.name} ${VEL_ROLE_LABELS[roleKey]} maximum velocity`,
+          oninput: (e) => {
+            state.velocityLimits[settingsSpaceId][roleKey].max = num(e.target.value, limits.max);
+            update();
+          },
+        }),
+      ]);
+    })
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -535,19 +639,30 @@ function segmentCard(seg, index) {
     renderAll();
   });
 
-  const roleGroup = el('div', { class: 'segmented segmented-sm', role: 'radiogroup', 'aria-label': 'Duct role' });
-  buildSegmentedControl(roleGroup, `role-${seg.id}`, DUCT_ROLES, seg.role, (id) => {
-    seg.role = id;
-    update();
-  });
+  // Flexible duct always sizes to its own velocity limits (Settings),
+  // regardless of role — showing a picker that has no effect would be worse
+  // than not showing one, so swap it for a plain explanation instead.
+  const roleField = el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct role' })]);
+  if (seg.shape === 'flexible') {
+    roleField.append(
+      el('p', {
+        class: 'hint',
+        text: 'Flexible duct sizes to its own velocity range regardless of role — see Settings.',
+      })
+    );
+  } else {
+    const roleGroup = el('div', { class: 'segmented segmented-sm', role: 'radiogroup', 'aria-label': 'Duct role' });
+    buildSegmentedControl(roleGroup, `role-${seg.id}`, DUCT_ROLES, seg.role, (id) => {
+      seg.role = id;
+      update();
+    });
+    roleField.append(roleGroup);
+  }
+  roleField.append(el('p', { class: 'hint js-limit-hint' }));
 
   body.append(
     el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]),
-    el('div', { class: 'field' }, [
-      el('label', { class: 'label', text: 'Duct role' }),
-      roleGroup,
-      el('p', { class: 'hint js-limit-hint' }),
-    ])
+    roleField
   );
 
   /* -- material ------------------------------------------------------ */
@@ -855,22 +970,25 @@ function metric(value, key, status = '') {
 function update() {
   const { results, run, air } = compute();
   const space = spaceType(state.spaceTypeId);
+  const isFloor = space.sizingMethod === 'velocity';
 
   /* -- per-segment -------------------------------------------------- */
   results.forEach(({ seg, ctx, result }, i) => {
     const card = $(`[data-seg="${seg.id}"]`);
     if (!card) return;
 
-    const vStatus = velocityStatus(result.velocity, ctx.limits);
+    const vStatus = velocityStatus(result.velocity, ctx.limits, isFloor);
 
     $('.js-head-size', card).textContent = `${result.label} · ${fmt(result.velocity, 1)} m/s`;
 
     $('.js-flow-alt', card).textContent =
       `${fmt(num(seg.airflowLps, 0) * 3.6, 0)} m³/h · ${fmt(num(seg.airflowLps, 0) / 1000, 3)} m³/s`;
 
-    $('.js-limit-hint', card).textContent =
-      `${space.name} ${DUCT_ROLES.find((r) => r.id === seg.role).name.toLowerCase()}: ` +
-      `recommended ≤ ${fmt(ctx.limits.recommended, 1)} m/s, max ${fmt(ctx.limits.max, 1)} m/s`;
+    const roleLabel =
+      seg.shape === 'flexible' ? 'flexible duct' : DUCT_ROLES.find((r) => r.id === seg.role).name.toLowerCase();
+    $('.js-limit-hint', card).textContent = isFloor
+      ? `${space.name} ${roleLabel}: minimum ${fmt(ctx.limits.recommended, 1)} m/s, max ${fmt(ctx.limits.max, 1)} m/s`
+      : `${space.name} ${roleLabel}: recommended ≤ ${fmt(ctx.limits.recommended, 1)} m/s, max ${fmt(ctx.limits.max, 1)} m/s`;
 
     $$('.js-fit-loss', card).forEach((node) => {
       const fit = result.fittings[Number(node.dataset.i)];
@@ -908,17 +1026,28 @@ function update() {
   const flags = [];
   for (const { seg, ctx, result } of results) {
     const i = state.segments.indexOf(seg) + 1;
-    const status = velocityStatus(result.velocity, ctx.limits);
-    if (status === 'bad') {
-      flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s limit` });
-    } else if (status === 'warn') {
-      flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s above the ${fmt(ctx.limits.recommended, 1)} m/s target` });
+    if (isFloor) {
+      if (result.velocity > ctx.limits.max) {
+        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s maximum (erosion/noise)` });
+      } else if (result.velocity > 0 && result.velocity < ctx.limits.recommended) {
+        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s is below the ${fmt(ctx.limits.recommended, 1)} m/s minimum — risk of settling/buildup` });
+      }
+    } else {
+      const status = velocityStatus(result.velocity, ctx.limits, false);
+      if (status === 'bad') {
+        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s limit` });
+      } else if (status === 'warn') {
+        flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s above the ${fmt(ctx.limits.recommended, 1)} m/s target` });
+      }
     }
     if (result.shape === 'rectangular' && result.aspectRatio > num(state.maxAspect, 4)) {
       flags.push({ level: 'warn', text: `Seg ${i}: aspect ratio ${fmt(result.aspectRatio, 1)}:1 — costly and hard to fit` });
     }
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
+    }
+    if (result.shape === 'flexible' && state.spaceTypeId === 'industrial') {
+      flags.push({ level: 'bad', text: `Seg ${i}: flexible duct is not normally permitted for kitchen/dust extract — check local fire code (e.g. NFPA 96/DW172) before specifying` });
     }
   }
 
@@ -942,21 +1071,26 @@ function update() {
 
   /* -- run metrics --------------------------------------------------- */
   const first = results[0]?.result;
-  const maxStatus = (() => {
+  const worstVelocityStatus = (() => {
     let worst = 'ok';
     for (const { ctx, result } of results) {
-      const s = velocityStatus(result.velocity, ctx.limits);
+      const s = velocityStatus(result.velocity, ctx.limits, isFloor);
       if (s === 'bad') return 'bad';
       if (s === 'warn') worst = 'warn';
     }
     return worst;
   })();
+  // Ceiling runs (friction-sized) care about the FASTEST segment — the one
+  // closest to being too noisy. Floor runs (velocity-sized, grease/dust
+  // extract) care about the SLOWEST — the one closest to settling out.
+  const headlineVelocity = isFloor ? run.minVelocity : run.maxVelocity;
+  const headlineVelocityLabel = isFloor ? 'min velocity m/s' : 'max velocity m/s';
 
   $('#run-grid').replaceChildren(
     metric(`${fmt(run.totalPa, 1)} Pa`, 'total branch pressure drop', 'hero'),
     metric(`${fmt(run.fanDutyPa, 0)} Pa`, `fan duty (+${fmt0(num(state.marginPct, 0))} %)`, 'hero'),
     metric(first ? first.label : '—', 'index duct size'),
-    metric(fmt(run.maxVelocity, 2), 'max velocity m/s', maxStatus),
+    metric(fmt(headlineVelocity, 2), headlineVelocityLabel, worstVelocityStatus),
     metric(fmt(run.noiseLwA, 0), 'noise LᴡA dBA', noiseStatus(run.noiseLwA, space.noiseLimitDba + 9)),
     metric(fmt(run.roomSpl, 0), 'est. room dBA', noise),
     metric(fmt(run.ductPa, 1), 'ductwork Pa'),
@@ -972,7 +1106,7 @@ function update() {
   /* -- breakdown table ------------------------------------------------ */
   $('#run-table tbody').replaceChildren(
     ...results.map(({ seg, ctx, result }, i) => {
-      const vClass = velocityStatus(result.velocity, ctx.limits);
+      const vClass = velocityStatus(result.velocity, ctx.limits, isFloor);
       return el('tr', {}, [
         el('td', { text: String(i + 1) }),
         el('td', { class: 'hi', text: result.label }),
@@ -990,8 +1124,9 @@ function update() {
   /* -- sticky summary -------------------------------------------------- */
   $('#sum-size').textContent = first ? first.label.replace(' mm', '') : '—';
   const velNode = $('#sum-vel');
-  velNode.textContent = fmt(run.maxVelocity, 1);
-  velNode.className = `sum-val ${maxStatus}`;
+  velNode.textContent = fmt(headlineVelocity, 1);
+  velNode.className = `sum-val ${worstVelocityStatus}`;
+  $('#sum-vel-key').textContent = isFloor ? 'min m/s' : 'max m/s';
   $('#sum-rate').textContent = first ? fmt(first.frictionRate, 2) : '—';
   $('#sum-total').textContent = fmt(run.totalPa, 0);
   const noiseNode = $('#sum-noise');
@@ -1003,9 +1138,10 @@ function update() {
     `ρ = ${fmt(air.density, 4)} kg/m³ · ν = ${air.kinematic.toExponential(3)} m²/s · ` +
     `barometric ${fmt0(air.pressurePa / 100)} mbar`;
 
-  $('#space-hint').textContent =
-    `Target friction ${fmt(space.targetFriction, 1)} Pa/m · noise criterion ` +
-    `${space.noiseCriterion} (${space.noiseLimitDba} dBA)`;
+  /* -- design basis readout (sizing method is fixed, shown not edited) -- */
+  $('#space-hint').textContent = isFloor
+    ? `${space.useCase} · constant velocity, sized to a minimum transport velocity per duct role · ${space.noiseCriterion} (${space.noiseLimitDba} dBA)`
+    : `${space.useCase} · constant friction, target ${fmt(frictionTargetFor(state.spaceTypeId), 1)} Pa/m · ${space.noiseCriterion} (${space.noiseLimitDba} dBA)`;
 
   save();
 }
@@ -1022,9 +1158,13 @@ function renderAll() {
 function summaryText() {
   const { results, run } = compute();
   const space = spaceType(state.spaceTypeId);
+  const methodLine =
+    space.sizingMethod === 'friction'
+      ? `constant friction, target ${fmt(frictionTargetFor(state.spaceTypeId), 1)} Pa/m`
+      : 'constant velocity, minimum transport velocity per duct role';
   const lines = [
     `DUCT — ${state.project || 'Untitled'}`,
-    `${space.name} · ${state.method === 'friction' ? `constant friction ${state.targetFriction} Pa/m` : `constant velocity ${state.targetVelocity} m/s`}`,
+    `${space.name} (${space.useCase}) · ${methodLine}`,
     '',
   ];
 
@@ -1048,7 +1188,7 @@ function summaryText() {
     `Plant allowance   ${fmt(run.plantPa, 1)} Pa`,
     `TOTAL BRANCH      ${fmt(run.totalPa, 1)} Pa`,
     `Fan duty (+${fmt0(num(state.marginPct, 0))} %)  ${fmt(run.fanDutyPa, 0)} Pa`,
-    `Max velocity      ${fmt(run.maxVelocity, 2)} m/s`,
+    `Velocity          max ${fmt(run.maxVelocity, 2)} m/s · min ${fmt(run.minVelocity, 2)} m/s`,
     `Noise LwA         ${fmt(run.noiseLwA, 0)} dBA (est. ${fmt(run.roomSpl, 0)} dBA in room)`,
     `DW/144 class      ${run.pressureClass} · leakage ${fmt(run.leakageLps, 1)} l/s (${fmt(run.leakagePct, 1)} %)`
   );
@@ -1090,6 +1230,7 @@ function csvText() {
   rows.push(['Total branch Pa', run.totalPa.toFixed(2)]);
   rows.push(['Fan duty Pa', run.fanDutyPa.toFixed(2)]);
   rows.push(['Max velocity m/s', run.maxVelocity.toFixed(2)]);
+  rows.push(['Min velocity m/s', run.minVelocity.toFixed(2)]);
   rows.push(['Noise LwA dBA', run.noiseLwA.toFixed(1)]);
   rows.push(['Est room dBA', run.roomSpl.toFixed(1)]);
   rows.push(['DW/144 class', run.pressureClass]);
@@ -1152,8 +1293,6 @@ function init() {
     save();
   });
 
-  bindInput('#target-friction', 'targetFriction');
-  bindInput('#target-velocity', 'targetVelocity');
   bindInput('#plant-pa', 'plantPa');
   bindInput('#margin-pct', 'marginPct');
   bindInput('#temp-c', 'tempC');
@@ -1176,6 +1315,19 @@ function init() {
   for (const btn of $$('[data-reset-sizes]')) {
     btn.addEventListener('click', () => resetSizeList(btn.dataset.resetSizes));
   }
+
+  $('#settings-target-friction').addEventListener('input', (e) => {
+    state.frictionTargets[settingsSpaceId] = num(e.target.value, frictionTargetFor(settingsSpaceId));
+    update();
+  });
+
+  $('#settings-reset-targets').addEventListener('click', () => {
+    state.frictionTargets[settingsSpaceId] = DEFAULT_FRICTION_TARGETS[settingsSpaceId];
+    state.velocityLimits[settingsSpaceId] = JSON.parse(JSON.stringify(DEFAULT_VELOCITY_LIMITS[settingsSpaceId]));
+    renderSettingsTargets();
+    update();
+    toast('Reset to default targets');
+  });
 
   $('#btn-add-segment').addEventListener('click', () => {
     const last = state.segments[state.segments.length - 1];
@@ -1208,7 +1360,11 @@ function init() {
     toast('Reset');
   });
 
-  $('#btn-settings').addEventListener('click', () => openSheet($('#settings-sheet')));
+  $('#btn-settings').addEventListener('click', () => {
+    settingsSpaceId = state.spaceTypeId;
+    renderSettingsTargets();
+    openSheet($('#settings-sheet'));
+  });
 
   for (const sheet of $$('dialog.sheet')) {
     sheet.addEventListener('close', releaseScrollLock);
@@ -1237,11 +1393,14 @@ function init() {
     'Straight-duct friction is calculated with the Darcy–Weisbach equation using a ' +
     'Colebrook–White friction factor iterated to convergence, on air properties derived ' +
     'from the entered temperature and altitude. Rectangular ducts are sized on the ASHRAE ' +
-    'circular equivalent diameter (equal friction, equal flow). Fitting losses use the ' +
-    'velocity-pressure method with the ζ values shown, which you can overwrite with ' +
-    'manufacturers’ data. Leakage follows the DW/144 class factors. Regenerated noise is ' +
-    'an indicative A-weighted estimate for comparing selections, not a substitute for an ' +
-    'octave-band acoustic calculation.';
+    'circular equivalent diameter (equal friction, equal flow). Residential and Commercial ' +
+    'size to a constant friction rate; Industrial sizes to a minimum transport velocity ' +
+    'instead (kitchen/dust extract), so standard duct sizes snap down rather than up — ' +
+    'rounding up would drop the actual velocity below the minimum needed to keep grease or ' +
+    'dust entrained. Fitting losses use the velocity-pressure method with the ζ values ' +
+    'shown, which you can overwrite with manufacturers’ data. Leakage follows the DW/144 ' +
+    'class factors. Regenerated noise is an indicative A-weighted estimate for comparing ' +
+    'selections, not a substitute for an octave-band acoustic calculation.';
 
   renderAll();
 
