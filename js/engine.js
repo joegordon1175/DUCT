@@ -232,31 +232,61 @@ export function snapFloor(idealMax, floorMin, list) {
 }
 
 /**
- * Choose a rectangular width × height meeting a required equivalent diameter
- * and a minimum free area, preferring aspect ratios near `preferredAspect`
- * and never exceeding `maxAspect`.
+ * Choose a rectangular width × height, preferring aspect ratios near
+ * `preferredAspect` and never exceeding `maxAspect`.
  *
+ * The two sizing modes constrain *different quantities*, which is why the
+ * width is solved differently in each:
+ *
+ *   'up' (default, friction target) — the constraint is the equivalent
+ *   diameter, so the width comes from `requiredDeMm` and is snapped up.
+ *
+ *   'down' (velocity floor) — the constraint is AREA, not De. Velocity is
+ *   Q/(w·h), so a minimum velocity is a maximum area. De is an equal-*friction*
+ *   diameter: a rectangular duct matching a round duct's De always has more
+ *   area than it (more perimeter per unit area, hence more friction), so
+ *   sizing on De here systematically oversizes and drops the velocity below
+ *   the minimum it was meant to hold. Pass the area band instead.
+ *
+ * @param {number} requiredDeMm  equivalent diameter target — 'up' mode only
+ * @param {number} minAreaMm2    smallest allowed face area (area at max velocity)
  * @param {object} opts
- *   @param {'up'|'down'} [opts.direction] 'up' (default) snaps each candidate
- *     width up to meet the target — correct when the target is a ceiling (a
- *     friction rate, or a maximum velocity). 'down' snaps down instead, for
- *     "floor" sizing where the target is a minimum velocity to hold and
- *     rounding up would push the actual velocity below it.
+ *   @param {'up'|'down'} [opts.direction]
+ *   @param {number} [opts.maxAreaMm2] largest allowed face area (area at the
+ *     minimum velocity) — required in 'down' mode, ignored in 'up' mode.
  * @returns {{width:number, height:number}} mm
  */
 export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
-  const { preferredAspect = 1.5, maxAspect = 4, maxHeightMm = Infinity, direction = 'up' } = opts;
-  const pickWidth = (wExact, wForArea) =>
-    direction === 'down' ? snapFloor(wExact, wForArea, sizes) : snapUp(Math.max(wExact, wForArea), sizes);
-  let best = null;
+  const {
+    preferredAspect = 1.5,
+    maxAspect = 4,
+    maxHeightMm = Infinity,
+    direction = 'up',
+    maxAreaMm2 = Infinity,
+  } = opts;
 
-  for (const h of sizes) {
-    if (h > maxHeightMm) continue;
+  const pickWidth = (h) => {
+    if (direction === 'down') {
+      // Widths that keep the face area inside [minArea, maxArea] for this height.
+      const wUpper = Number.isFinite(maxAreaMm2) ? maxAreaMm2 / h : Infinity;
+      const wLower = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
+      return snapFloor(wUpper, wLower, sizes);
+    }
     const wExact = widthForEquivalentDiameter(h, requiredDeMm);
     const wForArea = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
-    const w = pickWidth(wExact, wForArea);
+    return snapUp(Math.max(wExact, wForArea), sizes);
+  };
+
+  let best = null;
+  for (const h of sizes) {
+    if (h > maxHeightMm) continue;
+    const w = pickWidth(h);
     const aspect = Math.max(w, h) / Math.min(w, h);
     if (aspect > maxAspect) continue;
+
+    // In floor mode a candidate is only valid if it actually lands in the
+    // area band — otherwise it silently breaches the velocity it was sized to.
+    if (direction === 'down' && Number.isFinite(maxAreaMm2) && w * h > maxAreaMm2 + 1e-6) continue;
 
     const area = w * h;
     // Rank on closeness to the preferred aspect first, then on wasted area.
@@ -269,9 +299,7 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
   // Nothing satisfied the aspect limit (very large duct in a shallow void):
   // fall back to the shallowest allowed height and accept the aspect ratio.
   const h = Math.min(maxHeightMm, sizes[sizes.length - 1]);
-  const wExact = widthForEquivalentDiameter(h, requiredDeMm);
-  const wForArea = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
-  return { width: pickWidth(wExact, wForArea), height: h };
+  return { width: pickWidth(h), height: h };
 }
 
 /* ------------------------------------------------------------------ *
@@ -423,6 +451,11 @@ export function calcSegment(seg, ctx) {
   // ceiling that snapFloor below must not snap past.
   const requiredD = Math.max(dFriction, dTargetVel, dMaxVel); // m
   const minArea = ctx.maxVelocity > 0 ? flow / ctx.maxVelocity : 0; // m²
+  // Floor mode constrains AREA, not equivalent diameter — velocity is Q/A, so
+  // the minimum velocity is a maximum area. Rectangular sizing must use this
+  // rather than requiredD, which (being an equal-friction diameter) maps to a
+  // larger area for a rectangular duct and would undershoot the velocity.
+  const maxArea = floorSizing && ctx.targetVelocity > 0 ? flow / ctx.targetVelocity : Infinity; // m²
 
   // --- pick dimensions ---------------------------------------------------
   let widthMm = null;
@@ -436,28 +469,34 @@ export function calcSegment(seg, ctx) {
       sizedBy = 'both overridden';
     } else if (heightOverride) {
       heightMm = heightOverride;
-      const wExact = widthForEquivalentDiameter(heightMm, requiredD * 1000);
-      const wArea = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
+      // Floor mode: the other dimension is bounded by the area band. Ceiling
+      // mode: by the equivalent diameter, with the area only as a floor.
+      const wUpper = floorSizing
+        ? (maxArea * 1e6) / heightMm
+        : widthForEquivalentDiameter(heightMm, requiredD * 1000);
+      const wLower = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
       if (!useStandard) {
         // Round to a fabricable whole mm in whichever direction stays safe:
         // up for a ceiling target, down for a floor (minimum-velocity) one.
-        widthMm = floorSizing ? Math.floor(Math.max(wExact, wArea)) : Math.ceil(Math.max(wExact, wArea));
+        widthMm = floorSizing ? Math.floor(wUpper) : Math.ceil(Math.max(wUpper, wLower));
       } else if (floorSizing) {
-        widthMm = snapFloor(wExact, wArea, sizes);
+        widthMm = snapFloor(wUpper, wLower, sizes);
       } else {
-        widthMm = snapUp(Math.max(wExact, wArea), sizes);
+        widthMm = snapUp(Math.max(wUpper, wLower), sizes);
       }
       sizedBy = 'height overridden';
     } else if (widthOverride) {
       widthMm = widthOverride;
-      const hExact = widthForEquivalentDiameter(widthMm, requiredD * 1000); // symmetric
-      const hArea = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
+      const hUpper = floorSizing
+        ? (maxArea * 1e6) / widthMm
+        : widthForEquivalentDiameter(widthMm, requiredD * 1000); // symmetric
+      const hLower = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
       if (!useStandard) {
-        heightMm = floorSizing ? Math.floor(Math.max(hExact, hArea)) : Math.ceil(Math.max(hExact, hArea));
+        heightMm = floorSizing ? Math.floor(hUpper) : Math.ceil(Math.max(hUpper, hLower));
       } else if (floorSizing) {
-        heightMm = snapFloor(hExact, hArea, sizes);
+        heightMm = snapFloor(hUpper, hLower, sizes);
       } else {
-        heightMm = snapUp(Math.max(hExact, hArea), sizes);
+        heightMm = snapUp(Math.max(hUpper, hLower), sizes);
       }
       sizedBy = 'width overridden';
     } else {
@@ -466,6 +505,7 @@ export function calcSegment(seg, ctx) {
         maxAspect: ctx.maxAspect,
         maxHeightMm: ctx.maxHeightMm,
         direction: floorSizing ? 'down' : 'up',
+        maxAreaMm2: Number.isFinite(maxArea) ? maxArea * 1e6 : Infinity,
       });
       widthMm = picked.width;
       heightMm = picked.height;

@@ -203,13 +203,49 @@ test('rectangular selection honours a ceiling void height limit', () => {
   assert.ok(equivalentDiameter(picked.width, picked.height) >= 457);
 });
 
-test('rectangular floor-mode selection never exceeds the target equivalent diameter', () => {
-  // direction:'down' must never let De run past requiredDeMm, since that
-  // would drop velocity below the minimum the caller is sizing for.
-  const picked = selectRectangular(457, 0, RECT_SIZES, { direction: 'down' });
+test('rectangular floor-mode selection lands inside the area band', () => {
+  // Floor mode is constrained by AREA, not equivalent diameter — velocity is
+  // Q/(w·h). An earlier version of this test asserted De instead, which
+  // encoded the bug: a rectangular duct matching a round duct's De has more
+  // area than it, so De-based sizing undershot the minimum velocity.
+  // 500 l/s over a 6–8 m/s band: area must be within [62 500, 83 333] mm².
+  const minArea = (0.5 / 8) * 1e6;
+  const maxArea = (0.5 / 6) * 1e6;
+  const picked = selectRectangular(0, minArea, RECT_SIZES, {
+    direction: 'down',
+    maxAreaMm2: maxArea,
+  });
+  const area = picked.width * picked.height;
   assert.ok(
-    equivalentDiameter(picked.width, picked.height) <= 457 + 1e-6,
-    `De ${equivalentDiameter(picked.width, picked.height)} must not exceed 457`
+    area >= minArea - 1e-6 && area <= maxArea + 1e-6,
+    `${picked.width}×${picked.height} = ${area} mm² must sit within [${minArea.toFixed(0)}, ${maxArea.toFixed(0)}]`
+  );
+});
+
+test('rectangular floor sizing holds the velocity band across realistic duties', () => {
+  // Regression for the De-vs-area bug: with a 6–8 m/s band this used to land
+  // at 5.71 m/s — below the minimum — for most flows.
+  for (const lps of [250, 500, 1000, 2000, 4000]) {
+    const r = calcSegment(
+      { airflowLps: lps, shape: 'rectangular', lengthM: 10 },
+      ctx({ method: 'velocity', targetVelocity: 6, maxVelocity: 8 })
+    );
+    assert.ok(
+      r.velocity >= 6 - 1e-6 && r.velocity <= 8 + 1e-6,
+      `${lps} l/s -> ${r.label} = ${r.velocity.toFixed(2)} m/s, outside the 6–8 m/s band`
+    );
+  }
+});
+
+test('rectangular floor sizing respects a height override and the band', () => {
+  const r = calcSegment(
+    { airflowLps: 1000, shape: 'rectangular', lengthM: 10, heightMm: 300 },
+    ctx({ method: 'velocity', targetVelocity: 6, maxVelocity: 8 })
+  );
+  assert.equal(r.heightMm, 300, 'height held');
+  assert.ok(
+    r.velocity >= 6 - 1e-6 && r.velocity <= 8 + 1e-6,
+    `${r.label} = ${r.velocity.toFixed(2)} m/s, outside the 6–8 m/s band`
   );
 });
 
