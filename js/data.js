@@ -17,7 +17,8 @@
  * hold. Edit in Settings to match what yours actually stocks.
  */
 export const ROUND_SIZES = [
-  150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 700, 800, 900, 1000, 1400,
+  150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 700, 800, 900, 1000, 1100,
+  1200, 1300, 1400,
 ];
 
 /** Flexible duct, 50 mm increments over the range it's normally made in. */
