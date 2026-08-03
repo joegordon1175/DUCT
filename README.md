@@ -8,11 +8,22 @@ No build step, no dependencies, works offline once loaded.
 
 ```
 npm start      # serves on http://localhost:8080
-npm test       # runs the calculation engine test suite
+npm test       # runs the calculation engine + service worker test suite
 ```
 
 Open `http://localhost:8080` on a phone (or use the browser's device toolbar).
 On iOS/Android, "Add to Home Screen" installs it as a standalone app.
+
+### Releasing
+
+**Bump `CACHE_VERSION` in `sw.js` whenever you change a shipped file** —
+`index.html`, anything in `css/` or `js/`, or the manifest. That is what tells
+an already-installed copy to update: changing `sw.js` produces a new service
+worker, which triggers the one-shot reload wired up in `app.js`. Skip it and a
+device that already has the app can keep showing the old version.
+
+`npm test` fails if you forget, comparing the working tree against
+`origin/main`, so this isn't left to memory.
 
 ---
 

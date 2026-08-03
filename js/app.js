@@ -1451,9 +1451,42 @@ function init() {
 
   renderAll();
 
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  registerServiceWorker();
+}
+
+/**
+ * Register the offline cache, and make sure a released update actually reaches
+ * a device that already has the app installed.
+ *
+ * Three things are needed for that, and missing any one of them leaves someone
+ * looking at old code with no clue why:
+ *   - `updateViaCache: 'none'` — otherwise the browser serves sw.js itself from
+ *     its HTTP cache, so a new worker isn't even noticed for hours.
+ *   - an explicit `update()` on load — installed PWAs can run for days without
+ *     a navigation that would trigger the check on its own.
+ *   - a one-shot reload when the new worker takes control — the page is already
+ *     running the old JS it booted with, and `skipWaiting()` alone doesn't
+ *     replace that. The `reloading` guard is what stops this looping.
+ */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+
+  // On a first-ever visit there is no controller yet, and the worker's
+  // `clients.claim()` fires controllerchange too — reloading for that would be
+  // a pointless refresh on someone's first load. Only an update replacing an
+  // *existing* controller should trigger one.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+
+  navigator.serviceWorker
+    .register('sw.js', { updateViaCache: 'none' })
+    .then((reg) => reg.update().catch(() => {}))
+    .catch(() => {});
 }
 
 init();
