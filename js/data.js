@@ -11,15 +11,18 @@
  * Standard sizes (mm)
  * ------------------------------------------------------------------ */
 
-/** Spiral-wound circular duct, EN 1506 series plus sizes in common use. */
+/**
+ * Circular duct, on 50 mm increments to 600 then 100 mm — not the EN 1506
+ * preferred-number series (125/160/200/250/315…), which many suppliers don't
+ * hold. Edit in Settings to match what yours actually stocks.
+ */
 export const ROUND_SIZES = [
-  63, 80, 100, 125, 150, 160, 180, 200, 224, 250, 280, 315, 355, 400, 450, 500,
-  560, 630, 710, 800, 900, 1000, 1120, 1250, 1400, 1600,
+  150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 700, 800, 900, 1000, 1400,
 ];
 
-/** Flexible duct is made in a coarser range than spiral. */
+/** Flexible duct, 50 mm increments over the range it's normally made in. */
 export const FLEX_SIZES = [
-  100, 125, 150, 160, 180, 200, 250, 300, 315, 355, 400, 450, 500,
+  150, 200, 250, 300, 350, 400, 450, 500, 550, 600,
 ];
 
 /** Rectangular duct on the usual 50 mm modular increments. */

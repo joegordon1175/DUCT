@@ -163,25 +163,31 @@ test('larger flow needs a larger duct at the same friction rate', () => {
   assert.ok(large > small);
 });
 
-test('snapUp picks the next standard size', () => {
-  assert.equal(snapUp(300, ROUND_SIZES), 315);
-  assert.equal(snapUp(315, ROUND_SIZES), 315);
-  assert.equal(snapUp(316, ROUND_SIZES), 355);
-  assert.equal(snapUp(410, RECT_SIZES), 450);
+/* The snap helpers are pure list arithmetic, so they're tested against a fixed
+   local list rather than the shipped defaults — those are user-editable data
+   that can legitimately change, and pinning tests to them turns a defaults
+   change into a wall of unrelated failures. */
+const SNAP_LIST = [100, 150, 200, 250, 300, 400, 500];
+
+test('snapUp picks the next size at or above the value', () => {
+  assert.equal(snapUp(260, SNAP_LIST), 300);
+  assert.equal(snapUp(300, SNAP_LIST), 300, 'an exact match is used as-is');
+  assert.equal(snapUp(301, SNAP_LIST), 400);
+  assert.equal(snapUp(600, SNAP_LIST), 600, 'past the list, rounds up to the next 50 mm');
 });
 
-test('snapDown picks the previous standard size', () => {
-  assert.equal(snapDown(316, ROUND_SIZES), 315);
-  assert.equal(snapDown(315, ROUND_SIZES), 315);
-  assert.equal(snapDown(300, ROUND_SIZES), 280);
-  assert.equal(snapDown(50, ROUND_SIZES), 50, 'floors at 50 mm when smaller than every standard size');
+test('snapDown picks the previous size at or below the value', () => {
+  assert.equal(snapDown(299, SNAP_LIST), 250);
+  assert.equal(snapDown(300, SNAP_LIST), 300, 'an exact match is used as-is');
+  assert.equal(snapDown(399, SNAP_LIST), 300);
+  assert.equal(snapDown(50, SNAP_LIST), 50, 'floors at 50 mm when smaller than every size');
 });
 
 test('snapFloor stays within the [floorMin, idealMax] range', () => {
-  // Plenty of standard sizes between the bounds — picks the largest ≤ idealMax.
-  assert.equal(snapFloor(380, 300, ROUND_SIZES), 355);
-  // idealMax itself is a standard size — used exactly.
-  assert.equal(snapFloor(355, 300, ROUND_SIZES), 355);
+  // Sizes available between the bounds — picks the largest ≤ idealMax.
+  assert.equal(snapFloor(380, 200, SNAP_LIST), 300);
+  // idealMax itself is in the list — used exactly.
+  assert.equal(snapFloor(300, 200, SNAP_LIST), 300);
   // Sparse list where nothing between the bounds exists: falls back to
   // respecting the tighter (max-velocity) bound over the minimum.
   assert.equal(snapFloor(320, 310, [200, 500]), 500);
@@ -316,6 +322,19 @@ test('sign-dependent pressure class band is 750–1000 Pa and no wider', () => {
  * Segment calculation
  * ---------------------------------------------------------------- */
 
+/* Segment tests run against fixed size lists, not the shipped defaults. The
+   defaults are user-editable data and do change (they've moved from the EN 1506
+   preferred-number series to 50 mm increments); pinning hand-checked numbers to
+   them makes a legitimate data change look like an engine regression. */
+const TEST_ROUND = [
+  63, 80, 100, 125, 150, 160, 180, 200, 224, 250, 280, 315, 355, 400, 450, 500,
+  560, 630, 710, 800, 900, 1000,
+];
+const TEST_RECT = [
+  100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800,
+  850, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1800, 2000,
+];
+
 const ctx = (over = {}) => ({
   air: STANDARD_AIR,
   roughness: 0.00009,
@@ -324,8 +343,8 @@ const ctx = (over = {}) => ({
   targetFriction: 1.0,
   targetVelocity: 5,
   maxVelocity: 6,
-  roundSizes: ROUND_SIZES,
-  rectSizes: RECT_SIZES,
+  roundSizes: TEST_ROUND,
+  rectSizes: TEST_RECT,
   useStandardSizes: true,
   preferredAspect: 1.5,
   maxAspect: 4,
