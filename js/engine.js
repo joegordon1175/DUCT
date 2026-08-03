@@ -15,7 +15,7 @@
  *   - Empirical A-weighted regenerated-noise estimate (CIBSE/Woods form).
  *   - Two sizing modes: "ceiling" (constant friction rate; velocity is only
  *     ever checked, never sized to) and "floor" (constant velocity sized to
- *     a MINIMUM, e.g. grease/dust extract, where standard sizes snap down
+ *     a MINIMUM, e.g. kitchen grease extract, where standard sizes snap down
  *     instead of up so the built duct can't fall below the target).
  */
 
@@ -216,7 +216,7 @@ export function snapDown(value, list) {
 
 /**
  * Standard size for "floor" sizing, where the target is a minimum velocity to
- * hold rather than a maximum not to exceed — grease/dust extract, sized so
+ * hold rather than a maximum not to exceed — kitchen grease extract, sized so
  * material stays entrained. Snapping *up* (the normal rule) would silently
  * drop the actual velocity below the target, defeating the point of sizing
  * on velocity at all. Picks the largest standard size that does not exceed
@@ -354,7 +354,7 @@ export function pressureClass(staticPa, velocity) {
  *   @param {'friction'|'velocity'} ctx.method  'friction' sizes to a target
  *     friction rate ("ceiling" mode — velocity limits are a check, not a
  *     sizing input). 'velocity' sizes to `targetVelocity` as a MINIMUM
- *     ("floor" mode — grease/dust extract, where too slow lets material
+ *     ("floor" mode — kitchen grease extract, where too slow lets material
  *     settle out of the airstream) and snaps standard sizes down instead of
  *     up so the built duct never falls below it.
  *   @param {number} ctx.targetFriction  Pa/m, used when method is 'friction'
@@ -547,7 +547,7 @@ export function calcRun(results, opts = {}) {
   const ductPa = results.reduce((sum, r) => sum + r.totalLoss, 0);
   const totalPa = ductPa + Math.max(plantPa, 0);
   const maxVelocity = results.reduce((m, r) => Math.max(m, r.velocity), 0);
-  // For floor-sized runs (grease/dust extract) the weakest link is the
+  // For floor-sized runs (kitchen grease extract) the weakest link is the
   // SLOWEST segment, not the fastest — that's the one at risk of settling.
   const minVelocity = results.length
     ? results.reduce((m, r) => Math.min(m, r.velocity), Infinity)

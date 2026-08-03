@@ -69,12 +69,12 @@ export const FLEX_CONDITIONS = [
  *   rate. Velocity is only ever a check afterwards: `recommended` is a soft
  *   comfort/noise ceiling, `max` a hard one.
  *
- *   'velocity' (Industrial — kitchen extract / dust extract) — sizes to
- *   `recommended` as a MINIMUM transport velocity instead, and standard
- *   sizes snap down rather than up (see `snapFloor` in engine.js) so the
- *   built duct can't fall below it. Air moving slower than this lets grease
- *   or dust settle out and foul the duct — for grease that's a fire risk,
- *   not just a maintenance one. `max` here caps erosion and noise instead.
+ *   'velocity' (Industrial — kitchen extract) — sizes to `recommended` as a
+ *   MINIMUM transport velocity instead, and standard sizes snap down rather
+ *   than up (see `snapFloor` in engine.js) so the built duct can't fall
+ *   below it. Air moving slower than this lets grease settle out and foul
+ *   the duct — a fire risk, not just a maintenance one. `max` here caps
+ *   erosion and noise instead.
  *
  * `roles` covers the three duct positions (main/branch/runout) plus a
  * separate `flex` entry: flexible duct is rougher and usually shorter, so it
@@ -82,9 +82,9 @@ export const FLEX_CONDITIONS = [
  * regardless of which role is selected for it.
  *
  * These are indicative starting points (CIBSE Guide B3 / ASHRAE recommended
- * maxima for the friction-mode spaces; DW/172-style kitchen extract and
- * COSHH/ACGIH-style dust transport velocities for Industrial) — the app
- * lets every number here be edited and reset per space type in Settings.
+ * maxima for the friction-mode spaces; DW/172-style kitchen grease extract
+ * transport velocities for Industrial) — the app lets every number here be
+ * edited and reset per space type in Settings.
  */
 
 export const SPACE_TYPES = [
@@ -122,21 +122,20 @@ export const SPACE_TYPES = [
   },
   {
     id: 'industrial',
-    name: 'Industrial',
-    short: 'Industrial',
-    useCase: 'Kitchen & dust extract',
+    name: 'Kitchen Extract',
+    short: 'Kitchen',
+    useCase: 'Commercial kitchens & canopies',
     sizingMethod: 'velocity',
     noiseLimitDba: 50, // ≈ NR 45
     noiseCriterion: 'NR 45',
     roles: {
       // "recommended" is a MINIMUM transport velocity, not a soft ceiling —
-      // see the file-level note above. Confirm against DW/172 for kitchen
-      // grease extract, or COSHH/ACGIH transport velocities for the actual
-      // dust loading, before specifying.
-      main: { recommended: 10.0, max: 20.0 },
-      branch: { recommended: 10.0, max: 20.0 },
-      runout: { recommended: 10.0, max: 18.0 },
-      flex: { recommended: 10.0, max: 18.0 },
+      // see the file-level note above. Confirm against DW/172 before
+      // specifying.
+      main: { recommended: 10.0, max: 18.0 },
+      branch: { recommended: 10.0, max: 18.0 },
+      runout: { recommended: 10.0, max: 15.0 },
+      flex: { recommended: 10.0, max: 15.0 },
     },
   },
 ];

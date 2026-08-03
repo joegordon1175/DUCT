@@ -312,7 +312,7 @@ test('velocity cap overrides the friction target when it binds', () => {
 
 /* ---------------------------------------------------------------- *
  * Floor-mode (constant velocity, minimum transport velocity) sizing —
- * grease/dust extract, where the failure mode is velocity too LOW, so
+ * kitchen grease extract, where the failure mode is velocity too LOW, so
  * standard sizes must snap down rather than up.
  * ---------------------------------------------------------------- */
 

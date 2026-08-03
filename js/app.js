@@ -318,9 +318,9 @@ function compute() {
  * Velocity status against the space/role limits.
  *
  * Ceiling spaces (friction-sized) flag going OVER the recommended/max.
- * Floor spaces (velocity-sized — grease/dust extract) flag going UNDER the
+ * Floor spaces (velocity-sized — kitchen grease extract) flag going UNDER the
  * minimum just as seriously as over the max, since that's the failure mode
- * that lets material settle out and foul the duct.
+ * that lets grease settle out and foul the duct.
  */
 function velocityStatus(velocity, limits, isFloor) {
   if (!(velocity > 0)) return 'info';
@@ -1047,7 +1047,7 @@ function update() {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
     }
     if (result.shape === 'flexible' && state.spaceTypeId === 'industrial') {
-      flags.push({ level: 'bad', text: `Seg ${i}: flexible duct is not normally permitted for kitchen/dust extract — check local fire code (e.g. NFPA 96/DW172) before specifying` });
+      flags.push({ level: 'bad', text: `Seg ${i}: flexible duct is not normally permitted for kitchen extract — check local fire code (e.g. NFPA 96/DW172) before specifying` });
     }
   }
 
@@ -1081,7 +1081,7 @@ function update() {
     return worst;
   })();
   // Ceiling runs (friction-sized) care about the FASTEST segment — the one
-  // closest to being too noisy. Floor runs (velocity-sized, grease/dust
+  // closest to being too noisy. Floor runs (velocity-sized, kitchen grease
   // extract) care about the SLOWEST — the one closest to settling out.
   const headlineVelocity = isFloor ? run.minVelocity : run.maxVelocity;
   const headlineVelocityLabel = isFloor ? 'min velocity m/s' : 'max velocity m/s';
@@ -1394,10 +1394,10 @@ function init() {
     'Colebrook–White friction factor iterated to convergence, on air properties derived ' +
     'from the entered temperature and altitude. Rectangular ducts are sized on the ASHRAE ' +
     'circular equivalent diameter (equal friction, equal flow). Residential and Commercial ' +
-    'size to a constant friction rate; Industrial sizes to a minimum transport velocity ' +
-    'instead (kitchen/dust extract), so standard duct sizes snap down rather than up — ' +
-    'rounding up would drop the actual velocity below the minimum needed to keep grease or ' +
-    'dust entrained. Fitting losses use the velocity-pressure method with the ζ values ' +
+    'size to a constant friction rate; Kitchen Extract sizes to a minimum transport ' +
+    'velocity instead, so standard duct sizes snap down rather than up — rounding up would ' +
+    'drop the actual velocity below the minimum needed to keep grease entrained. Fitting ' +
+    'losses use the velocity-pressure method with the ζ values ' +
     'shown, which you can overwrite with manufacturers’ data. Leakage follows the DW/144 ' +
     'class factors. Regenerated noise is an indicative A-weighted estimate for comparing ' +
     'selections, not a substitute for an octave-band acoustic calculation.';
