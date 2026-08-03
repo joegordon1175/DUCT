@@ -19,6 +19,8 @@ import {
   combineLevels,
   leakageRate,
   pressureClass,
+  pressureClassDependsOnSign,
+  NEGATIVE_CLASS_B_LIMIT,
   calcSegment,
   calcRun,
   STANDARD_AIR,
@@ -259,6 +261,21 @@ test('pressure class follows DW/144 limits', () => {
   assert.equal(pressureClass(2500, 45), 'C+');
 });
 
+test('sign-dependent pressure class band is 750–1000 Pa and no wider', () => {
+  // Below the negative class-B cap both readings agree.
+  assert.equal(pressureClassDependsOnSign(300, 8), false, '300 Pa is class A either way');
+  assert.equal(pressureClassDependsOnSign(700, 8), false, 'still inside negative class B');
+  assert.equal(pressureClassDependsOnSign(NEGATIVE_CLASS_B_LIMIT, 8), false, 'exactly at the cap is fine');
+  // Inside the band: positive limits say B, negative limits would say C.
+  assert.equal(pressureClassDependsOnSign(800, 8), true);
+  assert.equal(pressureClassDependsOnSign(1000, 8), true, 'top of the band still ambiguous');
+  // Above it the positive limits reach C anyway, so they agree again.
+  assert.equal(pressureClassDependsOnSign(1001, 8), false, 'positive limits reach C — no disagreement');
+  assert.equal(pressureClassDependsOnSign(1500, 25), false);
+  // Velocity alone can force C, which also removes the ambiguity.
+  assert.equal(pressureClassDependsOnSign(900, 25), false, 'velocity already forces class C');
+});
+
 /* ---------------------------------------------------------------- *
  * Segment calculation
  * ---------------------------------------------------------------- */
@@ -312,7 +329,7 @@ test('velocity cap overrides the friction target when it binds', () => {
 
 /* ---------------------------------------------------------------- *
  * Floor-mode (constant velocity, minimum transport velocity) sizing —
- * grease/dust extract, where the failure mode is velocity too LOW, so
+ * kitchen grease extract, where the failure mode is velocity too LOW, so
  * standard sizes must snap down rather than up.
  * ---------------------------------------------------------------- */
 
@@ -413,6 +430,48 @@ test('flexible duct compression multiplies the friction rate', () => {
   );
   close(compressed.frictionRate, extended.frictionRate * 2, 1e-9);
   close(compressed.straightLoss, extended.straightLoss * 2, 1e-9);
+});
+
+test('compressed flexible duct is SIZED to actually hit the friction target', () => {
+  // Regression: sizing used to inflate roughness by the compression factor
+  // while reporting multiplied the friction rate by it — two different models.
+  // Roughness only enters logarithmically, so the duct came out far too small
+  // and the reported rate overshot the target (4x factor -> ~2.4x over).
+  // Exact sizing (no standard-size snapping) so only the model is under test.
+  // The diameter is still rounded up to a whole mm, and dp/m falls steeply with
+  // diameter (~D^-5), so the rate lands just *under* target by up to ~2 %.
+  for (const flexFactor of [1, 2, 4]) {
+    const r = calcSegment(
+      { airflowLps: 200, shape: 'flexible', lengthM: 6 },
+      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
+    );
+    assert.ok(
+      r.frictionRate <= 1.0 + 1e-9,
+      `flexFactor ${flexFactor}: rounding the diameter up must not overshoot the target, got ${r.frictionRate}`
+    );
+    close(r.frictionRate, 1.0, 0.025, `flexFactor ${flexFactor} must land on the 1.0 Pa/m target`);
+  }
+});
+
+test('compression makes the sized duct larger, not smaller', () => {
+  const size = (flexFactor) =>
+    calcSegment(
+      { airflowLps: 200, shape: 'flexible', lengthM: 6 },
+      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
+    ).heightMm;
+  assert.ok(size(2) > size(1), 'a 15 % compressed run needs a bigger duct than an extended one');
+  assert.ok(size(4) > size(2), 'a 30 % compressed run needs a bigger duct again');
+});
+
+test('a zero or invalid flex factor cannot divide the friction target', () => {
+  for (const flexFactor of [0, NaN, undefined, -1]) {
+    const r = calcSegment(
+      { airflowLps: 200, shape: 'flexible', lengthM: 6 },
+      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20 })
+    );
+    assert.ok(Number.isFinite(r.frictionRate) && r.frictionRate > 0, `flexFactor ${flexFactor} stays finite`);
+    assert.ok(Number.isFinite(r.heightMm) && r.heightMm > 0, `flexFactor ${flexFactor} gives a real size`);
+  }
 });
 
 test('fixed-loss fittings ignore ζ and use Pa directly', () => {

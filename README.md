@@ -22,7 +22,7 @@ On iOS/Android, "Add to Home Screen" installs it as a standalone app.
 
 | Input | Notes |
 |---|---|
-| Space type | Residential / Commercial / Industrial. Each has a **fixed** sizing method — see below — plus its own noise criterion. |
+| Space type | Residential / Commercial / Kitchen Extract. Each has a **fixed** sizing method — see below — plus its own noise criterion. |
 | Snap to standard sizes | On by default; off gives the exact calculated size. |
 
 The sizing method and its target aren't editable here — they're read-only,
@@ -32,7 +32,7 @@ mid-job. Fine-tune the actual numbers in Settings.
 | Space type | Sizing method | Why |
 |---|---|---|
 | Residential, Commercial | Constant friction rate (Pa/m) | Standard comfort-ventilation design; velocity is checked afterwards against a recommended/max range, not sized to. |
-| Industrial (kitchen / dust extract) | Constant velocity, as a **minimum** (m/s) | Air moving slower than the minimum lets grease or dust settle out and foul the duct — a fire risk for grease. Standard duct sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+| Kitchen Extract (commercial kitchens & canopies) | Constant velocity, as a **minimum** (m/s) | Air moving slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard duct sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
 
 **Per segment** — add as many as the run needs
 
@@ -40,7 +40,7 @@ mid-job. Fine-tune the actual numbers in Settings.
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
 | Duct role | Main / riser, branch, or runout — each has its own velocity target/limit (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limits regardless of role. |
-| Duct type | Circular, rectangular or flexible. |
+| Duct type | Circular, rectangular or flexible. Flexible isn't offered under Kitchen Extract — it's not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172); switching a run to Kitchen Extract converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
@@ -93,10 +93,8 @@ l/s and as a percentage of duty.
 
 Colour-coded flags call out velocities outside the limit (over the max in
 both modes; under the minimum too in velocity mode, since that's the failure
-that lets grease or dust settle out), excessive aspect ratios, flexible runs
-beyond 3 m, flexible duct selected under Industrial (not normally permitted
-for grease extract — check local fire code), and noise above the space's
-criterion.
+that lets grease settle out), excessive aspect ratios, flexible runs beyond
+3 m, and noise above the space's criterion.
 
 Export as CSV, or copy a plain-text summary for an email or a report.
 
@@ -131,10 +129,11 @@ against the ASHRAE equivalent-diameter table.
 a constant friction rate; velocity is only ever checked afterwards, so
 standard duct sizes snap *up* — always safe, since a bigger duct only ever
 lowers both the friction rate and the velocity further from their targets.
-Velocity-mode spaces (Industrial — kitchen/dust extract) size to a target
-velocity that's a **minimum**, not a ceiling, so the same snap-up rule would
-be wrong: rounding up to the next standard size lowers the velocity, which is
-exactly the direction that lets grease or dust settle out and foul the duct.
+Velocity-mode spaces (Kitchen Extract — commercial kitchens & canopies) size
+to a target velocity that's a **minimum**, not a ceiling, so the same snap-up
+rule would be wrong: rounding up to the next standard size lowers the
+velocity, which is exactly the direction that lets grease settle out and
+foul the duct.
 Standard sizes snap *down* instead (`snapDown`/`snapFloor` in engine.js),
 landing on the largest standard size that still meets the minimum, while a
 second bound (the diameter at the *maximum* velocity) stops it snapping down
@@ -174,11 +173,11 @@ pressure and velocity, with leakage `q = k · p^0.65` per m² of duct surface
 ### Reference data
 
 Friction-mode velocity limits follow CIBSE Guide B3 / ASHRAE recommended
-maxima for noise-sensitive design; velocity-mode (Industrial) minimum
+maxima for noise-sensitive design; velocity-mode (Kitchen Extract) minimum
 transport velocities are indicative defaults pending confirmation against
-DW/172 for kitchen grease extract or COSHH/ACGIH transport-velocity tables
-for the actual dust loading. Roughness values follow the ASHRAE Fundamentals
-duct roughness table, and loss coefficients are typical published values.
+DW/172 for the specific kitchen and canopy design. Roughness values follow
+the ASHRAE Fundamentals duct roughness table, and loss coefficients are
+typical published values.
 They are sensible defaults for a first pass, not a project specification —
 check them against the job's spec before issuing anything, and use Settings
 to fine-tune any of them per space type and duct role.

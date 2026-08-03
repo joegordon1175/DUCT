@@ -6,7 +6,7 @@
  * caret position survive a recalculation.
  */
 
-import { airProperties, calcSegment, calcRun } from './engine.js';
+import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from './engine.js';
 import {
   SPACE_TYPES,
   DUCT_ROLES,
@@ -141,6 +141,30 @@ function newSegment(over = {}) {
   };
 }
 
+/** Change a segment's duct type, resetting the material and dropping any
+ * fittings that don't apply to the new shape. Shared by the per-segment
+ * picker and the Kitchen Extract flexible-duct rule below. */
+function setSegmentShape(seg, shapeId) {
+  seg.shape = shapeId;
+  seg.materialId = DEFAULT_MATERIAL[shapeId];
+  seg.fittings = seg.fittings.filter((f) => {
+    const def = FITTINGS.find((x) => x.id === f.id);
+    return def ? def.shapes.includes(shapeId) : true;
+  });
+  if (shapeId !== 'rectangular') seg.widthMm = '';
+}
+
+/** Flexible duct isn't normally fire-code permitted for kitchen (grease)
+ * extract (e.g. NFPA 96/DW/172), so it's not offered as a duct type there —
+ * convert any segment that's already flexible when a run switches (or loads)
+ * into Kitchen Extract, rather than just flagging it after the fact. */
+function enforceKitchenExtractFlexRule(spaceId, segments) {
+  if (spaceId !== 'industrial') return;
+  for (const seg of segments) {
+    if (seg.shape === 'flexible') setSegmentShape(seg, 'circular');
+  }
+}
+
 function defaultState() {
   return {
     project: '',
@@ -229,6 +253,9 @@ function load() {
     delete merged.method;
     delete merged.targetFriction;
     delete merged.targetVelocity;
+    // A save from before flexible was excluded from Kitchen Extract could
+    // still have a flexible segment sitting under it.
+    enforceKitchenExtractFlexRule(merged.spaceTypeId, merged.segments);
     return merged;
   } catch {
     return null;
@@ -318,9 +345,9 @@ function compute() {
  * Velocity status against the space/role limits.
  *
  * Ceiling spaces (friction-sized) flag going OVER the recommended/max.
- * Floor spaces (velocity-sized — grease/dust extract) flag going UNDER the
+ * Floor spaces (velocity-sized — kitchen grease extract) flag going UNDER the
  * minimum just as seriously as over the max, since that's the failure mode
- * that lets material settle out and foul the duct.
+ * that lets grease settle out and foul the duct.
  */
 function velocityStatus(velocity, limits, isFloor) {
   if (!(velocity > 0)) return 'info';
@@ -360,6 +387,7 @@ function buildSegmentedControl(container, name, options, selected, onChange) {
 function buildDesignBasis() {
   buildSegmentedControl($('#space-group'), 'space', SPACE_TYPES, state.spaceTypeId, (id) => {
     state.spaceTypeId = id;
+    enforceKitchenExtractFlexRule(id, state.segments);
     renderAll();
   });
 
@@ -626,18 +654,25 @@ function segmentCard(seg, index) {
   );
 
   /* -- duct type & role --------------------------------------------- */
+  // Flexible isn't normally fire-code permitted for kitchen (grease) extract
+  // — leave it off the picker entirely under that space type rather than
+  // offer it and flag it after the fact.
+  const isKitchenExtract = state.spaceTypeId === 'industrial';
+  const availableShapes = isKitchenExtract ? SHAPES.filter((s) => s.id !== 'flexible') : SHAPES;
   const shapeGroup = el('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Duct type' });
-  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, SHAPES, seg.shape, (id) => {
-    seg.shape = id;
-    // Material and fitting lists differ by shape, so reset to a valid default.
-    seg.materialId = DEFAULT_MATERIAL[id];
-    seg.fittings = seg.fittings.filter((f) => {
-      const def = FITTINGS.find((x) => x.id === f.id);
-      return def ? def.shapes.includes(id) : true;
-    });
-    if (id !== 'rectangular') seg.widthMm = '';
+  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, availableShapes, seg.shape, (id) => {
+    setSegmentShape(seg, id);
     renderAll();
   });
+  const shapeField = el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]);
+  if (isKitchenExtract) {
+    shapeField.append(
+      el('p', {
+        class: 'hint',
+        text: 'Flexible duct isn’t offered for kitchen extract — not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172).',
+      })
+    );
+  }
 
   // Flexible duct always sizes to its own velocity limits (Settings),
   // regardless of role — showing a picker that has no effect would be worse
@@ -660,10 +695,7 @@ function segmentCard(seg, index) {
   }
   roleField.append(el('p', { class: 'hint js-limit-hint' }));
 
-  body.append(
-    el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]),
-    roleField
-  );
+  body.append(shapeField, roleField);
 
   /* -- material ------------------------------------------------------ */
   const materialSelect = el('select', {
@@ -1046,9 +1078,6 @@ function update() {
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
     }
-    if (result.shape === 'flexible' && state.spaceTypeId === 'industrial') {
-      flags.push({ level: 'bad', text: `Seg ${i}: flexible duct is not normally permitted for kitchen/dust extract — check local fire code (e.g. NFPA 96/DW172) before specifying` });
-    }
   }
 
   const noise = noiseStatus(run.roomSpl, space.noiseLimitDba);
@@ -1060,6 +1089,17 @@ function update() {
 
   if (run.pressureClass !== 'A') {
     flags.push({ level: 'info', text: `DW/144 class ${run.pressureClass} construction required` });
+  }
+  // The reported class reads DW/144's positive-pressure limits. Between the
+  // negative class-B cap and the positive one, an extract run may be a class
+  // higher — so prompt rather than silently pick a side.
+  if (pressureClassDependsOnSign(run.totalPa, run.maxVelocity)) {
+    flags.push({
+      level: 'warn',
+      text: isFloor
+        ? `Extract at ${fmt0(run.totalPa)} Pa — past the DW/144 negative limit for class B; check whether class C applies`
+        : `${fmt0(run.totalPa)} Pa — an extract run here may need class C (DW/144 negative limit); supply is unaffected`,
+    });
   }
   if (flags.length === 0 && run.totalPa > 0) {
     flags.push({ level: 'ok', text: 'All velocities and noise levels within limits' });
@@ -1081,7 +1121,7 @@ function update() {
     return worst;
   })();
   // Ceiling runs (friction-sized) care about the FASTEST segment — the one
-  // closest to being too noisy. Floor runs (velocity-sized, grease/dust
+  // closest to being too noisy. Floor runs (velocity-sized, kitchen grease
   // extract) care about the SLOWEST — the one closest to settling out.
   const headlineVelocity = isFloor ? run.minVelocity : run.maxVelocity;
   const headlineVelocityLabel = isFloor ? 'min velocity m/s' : 'max velocity m/s';
@@ -1091,7 +1131,14 @@ function update() {
     metric(`${fmt(run.fanDutyPa, 0)} Pa`, `fan duty (+${fmt0(num(state.marginPct, 0))} %)`, 'hero'),
     metric(first ? first.label : '—', 'index duct size'),
     metric(fmt(headlineVelocity, 2), headlineVelocityLabel, worstVelocityStatus),
-    metric(fmt(run.noiseLwA, 0), 'noise LᴡA dBA', noiseStatus(run.noiseLwA, space.noiseLimitDba + 9)),
+    // Sound power is judged against the room limit grossed back up by the same
+    // duct-to-room correction used to derive room SPL — not a hardcoded 9 dB,
+    // which silently ignored a user-edited correction in Settings.
+    metric(
+      fmt(run.noiseLwA, 0),
+      'noise LᴡA dBA',
+      noiseStatus(run.noiseLwA, space.noiseLimitDba + num(state.roomCorrection, 9))
+    ),
     metric(fmt(run.roomSpl, 0), 'est. room dBA', noise),
     metric(fmt(run.ductPa, 1), 'ductwork Pa'),
     metric(fmt(run.plantPa, 0), 'plant Pa'),
@@ -1394,10 +1441,10 @@ function init() {
     'Colebrook–White friction factor iterated to convergence, on air properties derived ' +
     'from the entered temperature and altitude. Rectangular ducts are sized on the ASHRAE ' +
     'circular equivalent diameter (equal friction, equal flow). Residential and Commercial ' +
-    'size to a constant friction rate; Industrial sizes to a minimum transport velocity ' +
-    'instead (kitchen/dust extract), so standard duct sizes snap down rather than up — ' +
-    'rounding up would drop the actual velocity below the minimum needed to keep grease or ' +
-    'dust entrained. Fitting losses use the velocity-pressure method with the ζ values ' +
+    'size to a constant friction rate; Kitchen Extract sizes to a minimum transport ' +
+    'velocity instead, so standard duct sizes snap down rather than up — rounding up would ' +
+    'drop the actual velocity below the minimum needed to keep grease entrained. Fitting ' +
+    'losses use the velocity-pressure method with the ζ values ' +
     'shown, which you can overwrite with manufacturers’ data. Leakage follows the DW/144 ' +
     'class factors. Regenerated noise is an indicative A-weighted estimate for comparing ' +
     'selections, not a substitute for an octave-band acoustic calculation.';

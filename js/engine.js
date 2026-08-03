@@ -15,7 +15,7 @@
  *   - Empirical A-weighted regenerated-noise estimate (CIBSE/Woods form).
  *   - Two sizing modes: "ceiling" (constant friction rate; velocity is only
  *     ever checked, never sized to) and "floor" (constant velocity sized to
- *     a MINIMUM, e.g. grease/dust extract, where standard sizes snap down
+ *     a MINIMUM, e.g. kitchen grease extract, where standard sizes snap down
  *     instead of up so the built duct can't fall below the target).
  */
 
@@ -216,7 +216,7 @@ export function snapDown(value, list) {
 
 /**
  * Standard size for "floor" sizing, where the target is a minimum velocity to
- * hold rather than a maximum not to exceed — grease/dust extract, sized so
+ * hold rather than a maximum not to exceed — kitchen grease extract, sized so
  * material stays entrained. Snapping *up* (the normal rule) would silently
  * drop the actual velocity below the target, defeating the point of sizing
  * on velocity at all. Picks the largest standard size that does not exceed
@@ -324,12 +324,38 @@ export function leakageRate(pressurePa, ductClass = 'A') {
 /**
  * DW/144 construction class from operating static pressure and velocity.
  * Class A ≤ 500 Pa / 10 m/s, B ≤ 1000 Pa / 20 m/s, C ≤ 2000 Pa / 40 m/s.
+ *
+ * These are the POSITIVE-pressure limits. DW/144 caps suction tighter for
+ * classes B and C — see `NEGATIVE_CLASS_B_LIMIT` below.
  */
 export function pressureClass(staticPa, velocity) {
   if (staticPa <= 500 && velocity <= 10) return 'A';
   if (staticPa <= 1000 && velocity <= 20) return 'B';
   if (staticPa <= 2000 && velocity <= 40) return 'C';
   return 'C+';
+}
+
+/**
+ * DW/144 class-B limit on the negative (suction) side, where the failure mode
+ * is the duct collapsing rather than leaking — so the cap is lower than the
+ * 1000 Pa allowed on the positive side.
+ *
+ * Treat as indicative and confirm against the standard before relying on it;
+ * the app only uses it to raise a "check this" flag, never to silently
+ * re-classify a run.
+ */
+export const NEGATIVE_CLASS_B_LIMIT = 750; // Pa
+
+/**
+ * True when a run's pressure falls in the band where the DW/144 class depends
+ * on which side of the fan the duct sits: class B read on the positive limits,
+ * but past the negative class-B cap, so an extract run may need class C.
+ *
+ * Only ~750–1000 Pa is affected. Below that both readings agree; above ~1000 Pa
+ * the positive limits reach class C anyway, so they agree again.
+ */
+export function pressureClassDependsOnSign(staticPa, velocity) {
+  return pressureClass(staticPa, velocity) === 'B' && staticPa > NEGATIVE_CLASS_B_LIMIT;
 }
 
 /* ------------------------------------------------------------------ *
@@ -354,7 +380,7 @@ export function pressureClass(staticPa, velocity) {
  *   @param {'friction'|'velocity'} ctx.method  'friction' sizes to a target
  *     friction rate ("ceiling" mode — velocity limits are a check, not a
  *     sizing input). 'velocity' sizes to `targetVelocity` as a MINIMUM
- *     ("floor" mode — grease/dust extract, where too slow lets material
+ *     ("floor" mode — kitchen grease extract, where too slow lets material
  *     settle out of the airstream) and snaps standard sizes down instead of
  *     up so the built duct never falls below it.
  *   @param {number} ctx.targetFriction  Pa/m, used when method is 'friction'
@@ -368,7 +394,9 @@ export function calcSegment(seg, ctx) {
   const air = ctx.air ?? STANDARD_AIR;
   const flow = Math.max(seg.airflowLps ?? 0, 0) / 1000; // m³/s
   const roughness = ctx.roughness ?? 0.00009;
-  const flexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
+  // Guarded > 0: it divides the friction target when sizing, below.
+  const rawFlexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
+  const flexFactor = Number.isFinite(rawFlexFactor) && rawFlexFactor > 0 ? rawFlexFactor : 1;
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
@@ -378,9 +406,15 @@ export function calcSegment(seg, ctx) {
   const widthOverride = rectangular ? positive(seg.widthMm) : null;
 
   // --- required equivalent diameter from the sizing rule -----------------
+  // The flexible-duct compression factor is applied to the friction RATE
+  // below (`frictionRate = base * flexFactor`), so sizing has to invert that
+  // same model: find the diameter whose *uncompressed* rate is target/factor.
+  // Inflating the roughness instead would be a different model entirely —
+  // roughness only enters logarithmically, so it under-sizes badly (a 4x
+  // factor came out ~2.4x over target).
   const dFriction = floorSizing
     ? 0
-    : diameterForFriction(flow, ctx.targetFriction, roughness * flexFactor, air);
+    : diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
   const dTargetVel = floorSizing ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
   const dMaxVel = diameterForVelocity(flow, ctx.maxVelocity);
   // In floor mode dTargetVel (diameter at the slower, minimum velocity) is the
@@ -547,7 +581,7 @@ export function calcRun(results, opts = {}) {
   const ductPa = results.reduce((sum, r) => sum + r.totalLoss, 0);
   const totalPa = ductPa + Math.max(plantPa, 0);
   const maxVelocity = results.reduce((m, r) => Math.max(m, r.velocity), 0);
-  // For floor-sized runs (grease/dust extract) the weakest link is the
+  // For floor-sized runs (kitchen grease extract) the weakest link is the
   // SLOWEST segment, not the fastest — that's the one at risk of settling.
   const minVelocity = results.length
     ? results.reduce((m, r) => Math.min(m, r.velocity), Infinity)
