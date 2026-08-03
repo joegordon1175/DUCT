@@ -19,6 +19,8 @@ import {
   combineLevels,
   leakageRate,
   pressureClass,
+  pressureClassDependsOnSign,
+  NEGATIVE_CLASS_B_LIMIT,
   calcSegment,
   calcRun,
   STANDARD_AIR,
@@ -257,6 +259,21 @@ test('pressure class follows DW/144 limits', () => {
   assert.equal(pressureClass(300, 15), 'B');
   assert.equal(pressureClass(1500, 25), 'C');
   assert.equal(pressureClass(2500, 45), 'C+');
+});
+
+test('sign-dependent pressure class band is 750–1000 Pa and no wider', () => {
+  // Below the negative class-B cap both readings agree.
+  assert.equal(pressureClassDependsOnSign(300, 8), false, '300 Pa is class A either way');
+  assert.equal(pressureClassDependsOnSign(700, 8), false, 'still inside negative class B');
+  assert.equal(pressureClassDependsOnSign(NEGATIVE_CLASS_B_LIMIT, 8), false, 'exactly at the cap is fine');
+  // Inside the band: positive limits say B, negative limits would say C.
+  assert.equal(pressureClassDependsOnSign(800, 8), true);
+  assert.equal(pressureClassDependsOnSign(1000, 8), true, 'top of the band still ambiguous');
+  // Above it the positive limits reach C anyway, so they agree again.
+  assert.equal(pressureClassDependsOnSign(1001, 8), false, 'positive limits reach C — no disagreement');
+  assert.equal(pressureClassDependsOnSign(1500, 25), false);
+  // Velocity alone can force C, which also removes the ambiguity.
+  assert.equal(pressureClassDependsOnSign(900, 25), false, 'velocity already forces class C');
 });
 
 /* ---------------------------------------------------------------- *

@@ -324,12 +324,38 @@ export function leakageRate(pressurePa, ductClass = 'A') {
 /**
  * DW/144 construction class from operating static pressure and velocity.
  * Class A ≤ 500 Pa / 10 m/s, B ≤ 1000 Pa / 20 m/s, C ≤ 2000 Pa / 40 m/s.
+ *
+ * These are the POSITIVE-pressure limits. DW/144 caps suction tighter for
+ * classes B and C — see `NEGATIVE_CLASS_B_LIMIT` below.
  */
 export function pressureClass(staticPa, velocity) {
   if (staticPa <= 500 && velocity <= 10) return 'A';
   if (staticPa <= 1000 && velocity <= 20) return 'B';
   if (staticPa <= 2000 && velocity <= 40) return 'C';
   return 'C+';
+}
+
+/**
+ * DW/144 class-B limit on the negative (suction) side, where the failure mode
+ * is the duct collapsing rather than leaking — so the cap is lower than the
+ * 1000 Pa allowed on the positive side.
+ *
+ * Treat as indicative and confirm against the standard before relying on it;
+ * the app only uses it to raise a "check this" flag, never to silently
+ * re-classify a run.
+ */
+export const NEGATIVE_CLASS_B_LIMIT = 750; // Pa
+
+/**
+ * True when a run's pressure falls in the band where the DW/144 class depends
+ * on which side of the fan the duct sits: class B read on the positive limits,
+ * but past the negative class-B cap, so an extract run may need class C.
+ *
+ * Only ~750–1000 Pa is affected. Below that both readings agree; above ~1000 Pa
+ * the positive limits reach class C anyway, so they agree again.
+ */
+export function pressureClassDependsOnSign(staticPa, velocity) {
+  return pressureClass(staticPa, velocity) === 'B' && staticPa > NEGATIVE_CLASS_B_LIMIT;
 }
 
 /* ------------------------------------------------------------------ *

@@ -6,7 +6,7 @@
  * caret position survive a recalculation.
  */
 
-import { airProperties, calcSegment, calcRun } from './engine.js';
+import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from './engine.js';
 import {
   SPACE_TYPES,
   DUCT_ROLES,
@@ -1089,6 +1089,17 @@ function update() {
 
   if (run.pressureClass !== 'A') {
     flags.push({ level: 'info', text: `DW/144 class ${run.pressureClass} construction required` });
+  }
+  // The reported class reads DW/144's positive-pressure limits. Between the
+  // negative class-B cap and the positive one, an extract run may be a class
+  // higher — so prompt rather than silently pick a side.
+  if (pressureClassDependsOnSign(run.totalPa, run.maxVelocity)) {
+    flags.push({
+      level: 'warn',
+      text: isFloor
+        ? `Extract at ${fmt0(run.totalPa)} Pa — past the DW/144 negative limit for class B; check whether class C applies`
+        : `${fmt0(run.totalPa)} Pa — an extract run here may need class C (DW/144 negative limit); supply is unaffected`,
+    });
   }
   if (flags.length === 0 && run.totalPa > 0) {
     flags.push({ level: 'ok', text: 'All velocities and noise levels within limits' });
