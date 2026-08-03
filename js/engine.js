@@ -368,7 +368,9 @@ export function calcSegment(seg, ctx) {
   const air = ctx.air ?? STANDARD_AIR;
   const flow = Math.max(seg.airflowLps ?? 0, 0) / 1000; // m³/s
   const roughness = ctx.roughness ?? 0.00009;
-  const flexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
+  // Guarded > 0: it divides the friction target when sizing, below.
+  const rawFlexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
+  const flexFactor = Number.isFinite(rawFlexFactor) && rawFlexFactor > 0 ? rawFlexFactor : 1;
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
@@ -378,9 +380,15 @@ export function calcSegment(seg, ctx) {
   const widthOverride = rectangular ? positive(seg.widthMm) : null;
 
   // --- required equivalent diameter from the sizing rule -----------------
+  // The flexible-duct compression factor is applied to the friction RATE
+  // below (`frictionRate = base * flexFactor`), so sizing has to invert that
+  // same model: find the diameter whose *uncompressed* rate is target/factor.
+  // Inflating the roughness instead would be a different model entirely —
+  // roughness only enters logarithmically, so it under-sizes badly (a 4x
+  // factor came out ~2.4x over target).
   const dFriction = floorSizing
     ? 0
-    : diameterForFriction(flow, ctx.targetFriction, roughness * flexFactor, air);
+    : diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
   const dTargetVel = floorSizing ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
   const dMaxVel = diameterForVelocity(flow, ctx.maxVelocity);
   // In floor mode dTargetVel (diameter at the slower, minimum velocity) is the

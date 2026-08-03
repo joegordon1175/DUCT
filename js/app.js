@@ -1120,7 +1120,14 @@ function update() {
     metric(`${fmt(run.fanDutyPa, 0)} Pa`, `fan duty (+${fmt0(num(state.marginPct, 0))} %)`, 'hero'),
     metric(first ? first.label : '—', 'index duct size'),
     metric(fmt(headlineVelocity, 2), headlineVelocityLabel, worstVelocityStatus),
-    metric(fmt(run.noiseLwA, 0), 'noise LᴡA dBA', noiseStatus(run.noiseLwA, space.noiseLimitDba + 9)),
+    // Sound power is judged against the room limit grossed back up by the same
+    // duct-to-room correction used to derive room SPL — not a hardcoded 9 dB,
+    // which silently ignored a user-edited correction in Settings.
+    metric(
+      fmt(run.noiseLwA, 0),
+      'noise LᴡA dBA',
+      noiseStatus(run.noiseLwA, space.noiseLimitDba + num(state.roomCorrection, 9))
+    ),
     metric(fmt(run.roomSpl, 0), 'est. room dBA', noise),
     metric(fmt(run.ductPa, 1), 'ductwork Pa'),
     metric(fmt(run.plantPa, 0), 'plant Pa'),
