@@ -40,7 +40,7 @@ mid-job. Fine-tune the actual numbers in Settings.
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
 | Duct role | Main / riser, branch, or runout — each has its own velocity target/limit (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limits regardless of role. |
-| Duct type | Circular, rectangular or flexible. |
+| Duct type | Circular, rectangular or flexible. Flexible isn't offered under Kitchen Extract — it's not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172); switching a run to Kitchen Extract converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
@@ -94,9 +94,7 @@ l/s and as a percentage of duty.
 Colour-coded flags call out velocities outside the limit (over the max in
 both modes; under the minimum too in velocity mode, since that's the failure
 that lets grease settle out), excessive aspect ratios, flexible runs beyond
-3 m, flexible duct selected under Kitchen Extract (not normally permitted for
-grease extract — check local fire code), and noise above the space's
-criterion.
+3 m, and noise above the space's criterion.
 
 Export as CSV, or copy a plain-text summary for an email or a report.
 

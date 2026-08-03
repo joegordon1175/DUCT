@@ -141,6 +141,30 @@ function newSegment(over = {}) {
   };
 }
 
+/** Change a segment's duct type, resetting the material and dropping any
+ * fittings that don't apply to the new shape. Shared by the per-segment
+ * picker and the Kitchen Extract flexible-duct rule below. */
+function setSegmentShape(seg, shapeId) {
+  seg.shape = shapeId;
+  seg.materialId = DEFAULT_MATERIAL[shapeId];
+  seg.fittings = seg.fittings.filter((f) => {
+    const def = FITTINGS.find((x) => x.id === f.id);
+    return def ? def.shapes.includes(shapeId) : true;
+  });
+  if (shapeId !== 'rectangular') seg.widthMm = '';
+}
+
+/** Flexible duct isn't normally fire-code permitted for kitchen (grease)
+ * extract (e.g. NFPA 96/DW/172), so it's not offered as a duct type there —
+ * convert any segment that's already flexible when a run switches (or loads)
+ * into Kitchen Extract, rather than just flagging it after the fact. */
+function enforceKitchenExtractFlexRule(spaceId, segments) {
+  if (spaceId !== 'industrial') return;
+  for (const seg of segments) {
+    if (seg.shape === 'flexible') setSegmentShape(seg, 'circular');
+  }
+}
+
 function defaultState() {
   return {
     project: '',
@@ -229,6 +253,9 @@ function load() {
     delete merged.method;
     delete merged.targetFriction;
     delete merged.targetVelocity;
+    // A save from before flexible was excluded from Kitchen Extract could
+    // still have a flexible segment sitting under it.
+    enforceKitchenExtractFlexRule(merged.spaceTypeId, merged.segments);
     return merged;
   } catch {
     return null;
@@ -360,6 +387,7 @@ function buildSegmentedControl(container, name, options, selected, onChange) {
 function buildDesignBasis() {
   buildSegmentedControl($('#space-group'), 'space', SPACE_TYPES, state.spaceTypeId, (id) => {
     state.spaceTypeId = id;
+    enforceKitchenExtractFlexRule(id, state.segments);
     renderAll();
   });
 
@@ -626,18 +654,25 @@ function segmentCard(seg, index) {
   );
 
   /* -- duct type & role --------------------------------------------- */
+  // Flexible isn't normally fire-code permitted for kitchen (grease) extract
+  // — leave it off the picker entirely under that space type rather than
+  // offer it and flag it after the fact.
+  const isKitchenExtract = state.spaceTypeId === 'industrial';
+  const availableShapes = isKitchenExtract ? SHAPES.filter((s) => s.id !== 'flexible') : SHAPES;
   const shapeGroup = el('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Duct type' });
-  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, SHAPES, seg.shape, (id) => {
-    seg.shape = id;
-    // Material and fitting lists differ by shape, so reset to a valid default.
-    seg.materialId = DEFAULT_MATERIAL[id];
-    seg.fittings = seg.fittings.filter((f) => {
-      const def = FITTINGS.find((x) => x.id === f.id);
-      return def ? def.shapes.includes(id) : true;
-    });
-    if (id !== 'rectangular') seg.widthMm = '';
+  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, availableShapes, seg.shape, (id) => {
+    setSegmentShape(seg, id);
     renderAll();
   });
+  const shapeField = el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]);
+  if (isKitchenExtract) {
+    shapeField.append(
+      el('p', {
+        class: 'hint',
+        text: 'Flexible duct isn’t offered for kitchen extract — not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172).',
+      })
+    );
+  }
 
   // Flexible duct always sizes to its own velocity limits (Settings),
   // regardless of role — showing a picker that has no effect would be worse
@@ -660,10 +695,7 @@ function segmentCard(seg, index) {
   }
   roleField.append(el('p', { class: 'hint js-limit-hint' }));
 
-  body.append(
-    el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]),
-    roleField
-  );
+  body.append(shapeField, roleField);
 
   /* -- material ------------------------------------------------------ */
   const materialSelect = el('select', {
@@ -1045,9 +1077,6 @@ function update() {
     }
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
-    }
-    if (result.shape === 'flexible' && state.spaceTypeId === 'industrial') {
-      flags.push({ level: 'bad', text: `Seg ${i}: flexible duct is not normally permitted for kitchen extract — check local fire code (e.g. NFPA 96/DW172) before specifying` });
     }
   }
 
