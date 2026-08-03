@@ -10,7 +10,6 @@ import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from 
 import {
   SPACE_TYPES,
   DUCT_ROLES,
-  SHAPES,
   NOISE_CRITERIA,
   DEFAULT_MATERIAL,
   FLEX_CONDITIONS,
@@ -19,6 +18,8 @@ import {
   materialsFor,
   material,
   spaceType,
+  spaceAllowsFlexible,
+  shapesForSpace,
   ROUND_SIZES,
   RECT_SIZES,
   FLEX_SIZES,
@@ -154,12 +155,11 @@ function setSegmentShape(seg, shapeId) {
   if (shapeId !== 'rectangular') seg.widthMm = '';
 }
 
-/** Flexible duct isn't normally fire-code permitted for kitchen (grease)
- * extract (e.g. NFPA 96/DW/172), so it's not offered as a duct type there —
- * convert any segment that's already flexible when a run switches (or loads)
- * into Kitchen Extract, rather than just flagging it after the fact. */
-function enforceKitchenExtractFlexRule(spaceId, segments) {
-  if (spaceId !== 'industrial') return;
+/** Where a space type disallows flexible duct (see `allowsFlexible` in
+ * data.js), convert any segment that's already flexible when a run switches
+ * into it — or loads with it saved — rather than just flagging it after. */
+function enforceShapeRules(spaceId, segments) {
+  if (spaceAllowsFlexible(spaceId)) return;
   for (const seg of segments) {
     if (seg.shape === 'flexible') setSegmentShape(seg, 'circular');
   }
@@ -255,7 +255,7 @@ function load() {
     delete merged.targetVelocity;
     // A save from before flexible was excluded from Kitchen Extract could
     // still have a flexible segment sitting under it.
-    enforceKitchenExtractFlexRule(merged.spaceTypeId, merged.segments);
+    enforceShapeRules(merged.spaceTypeId, merged.segments);
     return merged;
   } catch {
     return null;
@@ -387,7 +387,7 @@ function buildSegmentedControl(container, name, options, selected, onChange) {
 function buildDesignBasis() {
   buildSegmentedControl($('#space-group'), 'space', SPACE_TYPES, state.spaceTypeId, (id) => {
     state.spaceTypeId = id;
-    enforceKitchenExtractFlexRule(id, state.segments);
+    enforceShapeRules(id, state.segments);
     renderAll();
   });
 
@@ -525,7 +525,11 @@ function renderSettingsTargets() {
       el('span', { text: isFloor ? 'Min m/s' : 'Target m/s' }),
       el('span', { text: 'Max m/s' }),
     ]),
-    ...VEL_ROLE_ORDER.map((roleKey) => {
+    // Drop the flexible row where the space type can't use flexible duct —
+    // nothing typed into it could ever reach a calculation.
+    ...VEL_ROLE_ORDER.filter(
+      (roleKey) => roleKey !== 'flex' || spaceAllowsFlexible(settingsSpaceId)
+    ).map((roleKey) => {
       const limits = velocityLimitsFor(settingsSpaceId, roleKey);
       return el('div', { class: 'vel-row' }, [
         el('span', { class: 'vel-role', text: VEL_ROLE_LABELS[roleKey] }),
@@ -654,22 +658,19 @@ function segmentCard(seg, index) {
   );
 
   /* -- duct type & role --------------------------------------------- */
-  // Flexible isn't normally fire-code permitted for kitchen (grease) extract
-  // — leave it off the picker entirely under that space type rather than
-  // offer it and flag it after the fact.
-  const isKitchenExtract = state.spaceTypeId === 'industrial';
-  const availableShapes = isKitchenExtract ? SHAPES.filter((s) => s.id !== 'flexible') : SHAPES;
+  // Where the space type disallows flexible, leave it off the picker entirely
+  // rather than offer it and flag it after the fact.
   const shapeGroup = el('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Duct type' });
-  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, availableShapes, seg.shape, (id) => {
+  buildSegmentedControl(shapeGroup, `shape-${seg.id}`, shapesForSpace(state.spaceTypeId), seg.shape, (id) => {
     setSegmentShape(seg, id);
     renderAll();
   });
   const shapeField = el('div', { class: 'field' }, [el('label', { class: 'label', text: 'Duct type' }), shapeGroup]);
-  if (isKitchenExtract) {
+  if (!spaceAllowsFlexible(state.spaceTypeId)) {
     shapeField.append(
       el('p', {
         class: 'hint',
-        text: 'Flexible duct isn’t offered for kitchen extract — not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172).',
+        text: `Flexible duct isn’t offered for ${spaceType(state.spaceTypeId).name.toLowerCase()} — not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172).`,
       })
     );
   }

@@ -126,6 +126,10 @@ export const SPACE_TYPES = [
     short: 'Kitchen',
     useCase: 'Commercial kitchens & canopies',
     sizingMethod: 'velocity',
+    // Flexible duct is not normally fire-code permitted for grease extract
+    // (e.g. NFPA 96/DW/172), so it is not offered as a duct type here — and
+    // its velocity limits are hidden in Settings, since nothing could use them.
+    allowsFlexible: false,
     noiseLimitDba: 50, // ≈ NR 45
     noiseCriterion: 'NR 45',
     roles: {
@@ -154,6 +158,16 @@ export const SHAPES = [
 
 export function spaceType(id) {
   return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[1];
+}
+
+/** Whether flexible duct may be used at all in this space type. */
+export function spaceAllowsFlexible(spaceId) {
+  return spaceType(spaceId).allowsFlexible !== false;
+}
+
+/** Duct types selectable in this space type, in display order. */
+export function shapesForSpace(spaceId) {
+  return spaceAllowsFlexible(spaceId) ? SHAPES : SHAPES.filter((s) => s.id !== 'flexible');
 }
 
 /**
