@@ -134,12 +134,19 @@ export const SPACE_TYPES = [
     noiseCriterion: 'NR 45',
     roles: {
       // "recommended" is a MINIMUM transport velocity, not a soft ceiling —
-      // see the file-level note above. Confirm against DW/172 before
-      // specifying.
-      main: { recommended: 10.0, max: 18.0 },
-      branch: { recommended: 10.0, max: 18.0 },
-      runout: { recommended: 10.0, max: 15.0 },
-      flex: { recommended: 10.0, max: 15.0 },
+      // see the file-level note above. Confirm against DW/172 and the
+      // appliance duty before specifying.
+      //
+      // The main/riser carries the highest minimum because it is the longest,
+      // least accessible part of the run and the hardest to clean; branches
+      // and runouts are shorter and reachable, so they sit lower.
+      main: { recommended: 7.5, max: 12.0 },
+      branch: { recommended: 6.0, max: 8.0 },
+      runout: { recommended: 6.0, max: 8.0 },
+      // Unused: flexible duct is disallowed here (`allowsFlexible: false`), so
+      // this row is hidden in Settings. Kept so the defaults map stays a
+      // complete shape for every role key.
+      flex: { recommended: 6.0, max: 8.0 },
     },
   },
 ];
