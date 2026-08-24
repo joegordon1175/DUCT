@@ -273,6 +273,49 @@ input:focus, select:focus, textarea:focus {
 .sizes-error { min-height: 14px; margin: 6px 0 0; color: var(--bad); }
 .sizes-error:empty { margin-top: 0; }
 
+/* ------------------------------------------------------------ saved calcs */
+
+.saved-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.saved-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.saved-open:active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.saved-open b {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-open span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  /* Keeps the row two lines tall whatever the name length or locale date format */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-open:active span { color: var(--accent-ink); }
+
 .vel-matrix { margin-top: 4px; }
 .vel-matrix-head, .vel-row {
   display: grid;
