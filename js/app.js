@@ -224,39 +224,54 @@ function velocityLimitsFor(spaceId, roleKey) {
 
 let state = load() ?? defaultState();
 
+/** Keep the segment id sequence ahead of anything restored, so a new segment
+ * can't collide with one that came out of storage. */
+function advanceSegmentSeq(segments) {
+  for (const seg of segments ?? []) {
+    const n = parseInt(String(seg.id).replace(/\D/g, ''), 10);
+    if (Number.isFinite(n)) segmentSeq = Math.max(segmentSeq, n);
+  }
+}
+
+/**
+ * Bring a stored state up to the current shape: fill in fields added since it
+ * was written, drop fields that have moved, and re-apply rules it may predate.
+ * Shared by the working-state load and by opening a saved calculation, so an
+ * old save can't reach the app in a shape the rest of the code doesn't expect.
+ */
+function normaliseState(parsed) {
+  const defaults = defaultState();
+  const merged = { ...defaults, ...parsed };
+  // Older saves predate the custom size lists, or may only have some shapes set.
+  merged.sizeLists = { ...defaults.sizeLists, ...(parsed.sizeLists ?? {}) };
+  // Older saves predate per-space sizing targets entirely.
+  merged.frictionTargets = { ...defaults.frictionTargets, ...(parsed.frictionTargets ?? {}) };
+  merged.velocityLimits = {};
+  for (const spaceId of Object.keys(defaults.velocityLimits)) {
+    merged.velocityLimits[spaceId] = {
+      ...defaults.velocityLimits[spaceId],
+      ...(parsed.velocityLimits?.[spaceId] ?? {}),
+    };
+  }
+  // Sizing method and its single global target used to be flat, user-set
+  // fields; both are now fixed per space type and live in the maps above.
+  delete merged.method;
+  delete merged.targetFriction;
+  delete merged.targetVelocity;
+  // A save from before flexible was excluded from Kitchen Extract could
+  // still have a flexible segment sitting under it.
+  enforceShapeRules(merged.spaceTypeId, merged.segments);
+  return merged;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.segments) || parsed.segments.length === 0) return null;
-    // Keep the id sequence ahead of anything restored
-    for (const seg of parsed.segments) {
-      const n = parseInt(String(seg.id).replace(/\D/g, ''), 10);
-      if (Number.isFinite(n)) segmentSeq = Math.max(segmentSeq, n);
-    }
-    const defaults = defaultState();
-    const merged = { ...defaults, ...parsed };
-    // Older saves predate the custom size lists, or may only have some shapes set.
-    merged.sizeLists = { ...defaults.sizeLists, ...(parsed.sizeLists ?? {}) };
-    // Older saves predate per-space sizing targets entirely.
-    merged.frictionTargets = { ...defaults.frictionTargets, ...(parsed.frictionTargets ?? {}) };
-    merged.velocityLimits = {};
-    for (const spaceId of Object.keys(defaults.velocityLimits)) {
-      merged.velocityLimits[spaceId] = {
-        ...defaults.velocityLimits[spaceId],
-        ...(parsed.velocityLimits?.[spaceId] ?? {}),
-      };
-    }
-    // Sizing method and its single global target used to be flat, user-set
-    // fields; both are now fixed per space type and live in the maps above.
-    delete merged.method;
-    delete merged.targetFriction;
-    delete merged.targetVelocity;
-    // A save from before flexible was excluded from Kitchen Extract could
-    // still have a flexible segment sitting under it.
-    enforceShapeRules(merged.spaceTypeId, merged.segments);
-    return merged;
+    advanceSegmentSeq(parsed.segments);
+    return normaliseState(parsed);
   } catch {
     return null;
   }
@@ -268,6 +283,177 @@ function save() {
   } catch {
     /* private mode / quota — the app still works, it just won't persist */
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Saved calculations
+ *
+ * A named calculation stores only what lives on the MAIN page — airflows,
+ * segments, space type, system allowances. Everything in Settings (size
+ * lists, velocity targets, air conditions) is a global preference and is
+ * deliberately left alone when a saved calculation is opened: those describe
+ * your supplier and your standards, not one job, and silently rewriting them
+ * because you opened an old job would be worse than the alternative.
+ *
+ * The trade-off that buys is real and worth knowing: a saved calculation is
+ * not a frozen record. Change a velocity target and an old job reopened will
+ * recalculate against the new one. Export the CSV if a fixed record matters.
+ * ------------------------------------------------------------------ */
+
+const LIBRARY_KEY = 'duct.projects.v1';
+
+/** Fields belonging to the calculation rather than to global preferences. */
+const CALC_KEYS = [
+  'project',
+  'spaceTypeId',
+  'useStandardSizes',
+  'segments',
+  'plantPa',
+  'marginPct',
+  'leakageClass',
+];
+
+function loadLibrary() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LIBRARY_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((e) => e && e.id && e.name) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistLibrary(list) {
+  try {
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false; // quota exceeded or private mode
+  }
+}
+
+function calcSnapshot() {
+  const snap = {};
+  for (const key of CALC_KEYS) snap[key] = state[key];
+  return JSON.parse(JSON.stringify(snap));
+}
+
+/** Save under `name`, replacing any existing entry with the same name. */
+function saveCalculation(rawName) {
+  const name = String(rawName ?? '').trim();
+  if (!name) return { ok: false, error: 'Enter a name for this calculation.' };
+
+  const list = loadLibrary();
+  const at = list.findIndex((e) => e.name.toLowerCase() === name.toLowerCase());
+  if (at >= 0 && !confirm(`“${name}” already exists. Replace it?`)) return { ok: false };
+
+  state.project = name;
+  const entry = {
+    id: at >= 0 ? list[at].id : `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+    name,
+    savedAt: new Date().toISOString(),
+    calc: calcSnapshot(),
+  };
+  if (at >= 0) list[at] = entry;
+  else list.unshift(entry);
+
+  if (!persistLibrary(list)) {
+    return { ok: false, error: 'Could not save — device storage is full.' };
+  }
+  $('#project').value = name;
+  save();
+  return { ok: true, replaced: at >= 0 };
+}
+
+function openCalculation(id) {
+  const entry = loadLibrary().find((e) => e.id === id);
+  if (!entry) return false;
+  advanceSegmentSeq(entry.calc?.segments);
+  // Merge the calculation over the CURRENT state so global preferences survive,
+  // then normalise — the entry may have been written by an older version.
+  state = normaliseState({ ...state, ...entry.calc });
+  buildDesignBasis();
+  renderAll();
+  return true;
+}
+
+function deleteCalculation(id) {
+  const list = loadLibrary();
+  const entry = list.find((e) => e.id === id);
+  if (!entry) return false;
+  if (!confirm(`Delete “${entry.name}”? This cannot be undone.`)) return false;
+  persistLibrary(list.filter((e) => e.id !== id));
+  return true;
+}
+
+function renderLibrary() {
+  const list = loadLibrary();
+  $('#saved-count').textContent = list.length ? `Saved (${list.length})` : 'Saved';
+  const host = $('#saved-list');
+
+  if (list.length === 0) {
+    host.replaceChildren(
+      el('p', { class: 'empty-note', text: 'Nothing saved yet — name the current calculation above to keep it.' })
+    );
+    return;
+  }
+
+  host.replaceChildren(
+    ...list.map((entry) => {
+      const calc = entry.calc ?? {};
+      const segs = Array.isArray(calc.segments) ? calc.segments : [];
+      const duty = num(segs[0]?.airflowLps, 0);
+      const when = new Date(entry.savedAt);
+      const meta = [
+        spaceType(calc.spaceTypeId).name,
+        `${segs.length} segment${segs.length === 1 ? '' : 's'}`,
+        duty > 0 ? `${fmt0(duty)} l/s` : null,
+        Number.isNaN(when.getTime())
+          ? null
+          : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) +
+            ' ' +
+            when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+      ].filter(Boolean);
+
+      return el('div', { class: 'saved-row' }, [
+        el('button', {
+          class: 'saved-open',
+          type: 'button',
+          onclick: () => {
+            if (openCalculation(entry.id)) {
+              $('#saved-sheet').close();
+              toast(`Opened “${entry.name}”`);
+            }
+          },
+        }, [
+          el('b', { text: entry.name }),
+          el('span', { text: meta.join(' · ') }),
+        ]),
+        el('button', {
+          class: 'icon-btn',
+          type: 'button',
+          'aria-label': `Delete ${entry.name}`,
+          onclick: () => {
+            if (deleteCalculation(entry.id)) {
+              renderLibrary();
+              toast('Deleted');
+            }
+          },
+        }, [
+          el('span', {
+            html: '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+          }),
+        ]),
+      ]);
+    })
+  );
+}
+
+function openSavedSheet() {
+  $('#save-name').value = state.project ?? '';
+  $('#save-error').textContent = '';
+  renderLibrary();
+  $('#saved-list').scrollTop = 0;
+  openSheet($('#saved-sheet'));
 }
 
 /* ------------------------------------------------------------------ *
@@ -1412,6 +1598,26 @@ function init() {
     settingsSpaceId = state.spaceTypeId;
     renderSettingsTargets();
     openSheet($('#settings-sheet'));
+  });
+
+  $('#btn-saved').addEventListener('click', openSavedSheet);
+
+  const commitSave = () => {
+    const result = saveCalculation($('#save-name').value);
+    $('#save-error').textContent = result.error ?? '';
+    if (!result.ok) return;
+    renderLibrary();
+    toast(result.replaced ? 'Calculation replaced' : 'Calculation saved');
+  };
+  $('#btn-save-calc').addEventListener('click', commitSave);
+  $('#save-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitSave();
+    }
+  });
+  $('#save-name').addEventListener('input', () => {
+    $('#save-error').textContent = '';
   });
 
   for (const sheet of $$('dialog.sheet')) {

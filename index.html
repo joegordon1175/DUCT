@@ -24,6 +24,9 @@
     </div>
   </div>
   <div class="topbar-actions">
+    <button id="btn-saved" class="icon-btn" type="button" title="Saved calculations" aria-label="Saved calculations">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
     <button id="btn-share" class="icon-btn" type="button" title="Copy summary" aria-label="Copy summary">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
@@ -149,6 +152,32 @@
     <input id="fitting-search" type="search" placeholder="Search fittings…" aria-label="Search fittings" autocomplete="off">
   </div>
   <div class="sheet-body" id="fitting-list"></div>
+</dialog>
+
+<!-- ---------------------------------------------------------- Saved calculations -->
+<dialog id="saved-sheet" class="sheet">
+  <div class="sheet-head">
+    <h2>Saved calculations</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="field">
+      <label class="label" for="save-name">Save the current calculation</label>
+      <div class="chip-add">
+        <input id="save-name" type="text" placeholder="Name this calculation" aria-label="Name for the saved calculation" autocomplete="off">
+        <button class="chip-add-btn" type="button" id="btn-save-calc">Save</button>
+      </div>
+      <p class="hint sizes-error" id="save-error" role="alert"></p>
+      <p class="hint">Saves the airflows, duct segments, space type and system allowances.
+      Settings — duct size lists, velocity targets and air conditions — stay global and
+      aren’t changed when you open a saved calculation.</p>
+    </div>
+
+    <h3 class="sub-title" id="saved-count">Saved</h3>
+    <div id="saved-list"></div>
+  </div>
 </dialog>
 
 <!-- ---------------------------------------------------------- Settings -->

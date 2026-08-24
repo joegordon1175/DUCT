@@ -207,5 +207,23 @@ sw.js                 offline cache
 test/engine.test.mjs  engine tests
 ```
 
-State is saved to `localStorage` as you work, so closing the tab does not lose
-the calculation.
+## Saving calculations
+
+The calculation in progress is written to `localStorage` as you work, so closing
+the tab doesn't lose it. The folder icon in the header opens **Saved
+calculations**, where you can name and keep the current one, reopen an earlier
+one, or delete it.
+
+What a save contains follows one rule: **what's on the main page is part of the
+calculation; what's in Settings is a global preference.** So a save holds the
+airflows, duct segments, space type and system allowances — and opening it never
+touches your duct size lists, velocity targets or air conditions, which describe
+your supplier and your standards rather than one job.
+
+The trade-off that buys is worth knowing: a saved calculation is **not a frozen
+record**. Change a velocity target and an old job reopened will recalculate
+against the new one. Export the CSV if you need a fixed record of what was
+issued.
+
+Saves live in that browser on that device only — they aren't synced, and clearing
+site data removes them.
