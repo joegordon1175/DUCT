@@ -636,3 +636,98 @@ rather than something to be capped away.
 | 200 l/s | Ø150, 11.3 m/s, 10.5 Pa/m | Ø200, 6.4 m/s, 2.5 Pa/m |
 | 300 l/s | Ø200, 9.5 m/s, 5.4 Pa/m | Ø250, 6.1 m/s, 1.8 Pa/m |
 | 500 l/s | Ø250, 10.2 m/s, 4.6 Pa/m | Ø300, 7.1 m/s, 1.9 Pa/m |
+
+---
+
+## 10. Design basis adopted (06/11/2026)
+
+A project design basis supersedes the defaults derived in §6–§9. It resolves the
+open question in §9 in the opposite direction to the app's previous behaviour.
+
+### Grease extract sizes on equal friction, not constant velocity
+
+The system no longer has a sizing method of its own. It sizes to the project
+friction target at full design flow, like everything else, with velocity as a
+two-sided check:
+
+| | Figure | Basis |
+|---|---|---|
+| Method | equal friction, 1.0 Pa/m at design flow | constant section hood → fan where practical |
+| Max velocity | 9 m/s | DW/172 extract mains 6–9; ≤10 short risers if noise allows |
+| Min velocity at design flow | 5 m/s | judgement, DW/172 branch lower bound |
+| Min velocity at turndown | 2.5 m/s | NFPA 96 / IMC 506.3.4 (500 fpm) |
+| Aspect ratio | ≤ 2:1 | round/square preferred |
+| Air density | 1.15 kg/m³ | ≈ 35 °C, not room air |
+
+**The floor overrides Pa/m on small flows.** Sizing for friction alone goes
+slack long before it goes noisy — at 200 l/s the target gives a duct the air
+barely moves through — so the duct comes back down a size and the friction
+target is what gives. That is design intent, so it reads as an info line, not a
+warning:
+
+| Duty | Selection | Velocity | Pa/m | |
+|---|---|---|---|---|
+| 100 l/s | Ø150 | 5.7 | 2.88 | floor overrides target |
+| 200 l/s | Ø200 | 6.4 | 2.51 | floor overrides target |
+| 300 l/s | Ø250 | 6.1 | 1.77 | floor overrides target |
+| 500 l/s | Ø350 | 5.2 | 0.87 | target governs |
+| 2,500 l/s | Ø700 | 6.5 | 0.57 | target governs |
+| 6,000 l/s | Ø1000 | 7.6 | 0.50 | target governs |
+
+The engine's velocity floor is general, not grease-specific: `ctx.minVelocity`
+in friction mode. Rectangular honours it through the area ceiling, which
+`selectRectangular` now applies in both directions.
+
+### The 5 m/s is not a grease-suspension figure
+
+Worth stating, because the number looks like the old one. The pre-2002 reading —
+that slower air lets grease settle — is what **ASHRAE RP-1033 (Kuehn)**
+overturned: deposition *increases* with velocity, and NFPA 96 cut its minimum
+from 1500 fpm (7.6 m/s) to 500 fpm (2.54 m/s) by **Errata 96-01-01, January
+2002**. Any source quoting ≥7.5 m/s "to keep grease in suspension" predates that.
+
+The 5 m/s floor is there to stop a small duty producing a duct nothing moves
+through. The 2.5 m/s turndown figure is the one that carries code force, and it
+applies at the minimum flow of a VSD or DCKV system, not at design duty — which
+is why the app asks for a turndown percentage and checks there.
+
+### AS 1668.2-2002, corrected
+
+Sets **no in-duct velocity**. It covers hood face (Type A capture 0.5 m/s,
+dishwasher 0.3 m/s) and discharge (5 m/s vertical, **cl. 5.10.3**, systems over
+1000 l/s). §9 cited cl. 3.10.3 from a secondary source; 5.10.3 is correct.
+
+There is no code *maximum* anywhere; the US industry norm of 2500 fpm (12.7 m/s)
+is a noise convention.
+
+### What the friction ceiling became
+
+The Pa/m ceiling added in §8 and scoped to runouts in §9 is **gone**. It existed
+to stop constant-velocity sizing producing a tiny screaming duct; with equal
+friction that pathology cannot arise, because the duct is never smaller than the
+velocity floor requires. Worst case is now 2.88 Pa/m at 100 l/s against 10.5 Pa/m
+before.
+
+### Carried in but not yet modelled
+
+Recorded in `js/data.js` on the grease system, and surfaced nowhere yet:
+
+- **Discharge** ≥5 m/s vertical, target 10+ near sensitive receptors (UK
+  planning practice 10–15). Needs a discharge input — a stack is not a duct
+  segment.
+- **Hood spigot** 5–7 m/s (DW/172 practice). Advisory.
+- **Air density 1.15 kg/m³.** The app still defaults to 20 °C / 1.204. Setting
+  the temperature to ~35 °C gets there; nothing prompts for it.
+- **Installation notes** — fall to hood ≥2 % (runs ≤23 m) or ≥8 % (>23 m), IMC
+  506.3.7; access at each change of direction, ≤3 m centres, within ~1 m of fan
+  (TR/19, DW/172, NFPA 96 12 ft; AS 1668.1:2015 reportedly 3 m + changes of
+  direction, unverified); no fire dampers; liquid-tight welded joints. These are
+  drawing notes, not calculations.
+
+### Dead code this leaves behind
+
+Nothing now uses the engine's `'velocity'` sizing method: `snapFloor`,
+`selectRectangular`'s `'down'` direction, `ctx.maxFriction` and the
+`velocityCapSource` / `frictionCeiling` outputs are all unreachable from the app.
+They are still covered by tests and still correct; they are simply no longer
+wired to anything.

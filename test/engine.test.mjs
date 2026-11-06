@@ -31,7 +31,6 @@ import {
   SYSTEM_TYPES,
   maxVelocity,
   minVelocity,
-  maxFriction,
   systemType,
   spaceType,
 } from '../js/data.js';
@@ -744,9 +743,10 @@ test('every grease band is workable in the commercial kitchen', () => {
   // The regression this guards: with the kitchen max taken from an acoustic
   // space, the runout band came out impossible (max below min) in five spaces
   // and zero-width in the sixth, so no runout could ever satisfy the rule.
+  const min = minVelocity('grease');
+  const systemMax = systemType('grease').maxVelocity;
   for (const role of ['main', 'branch', 'runout']) {
-    const min = minVelocity('grease', role);
-    const max = maxVelocity('kitchen', role);
+    const max = Math.min(maxVelocity('kitchen', role), systemMax);
     assert.ok(max > min, `${role}: kitchen max ${max} must leave room above the ${min} minimum`);
   }
 });
@@ -756,17 +756,13 @@ test('only kitchen grease extract carries a minimum velocity', () => {
   // a friction system needs no floor — a second constraint saying the same
   // thing. Grease transport is the one case where the minimum is physical.
   for (const system of SYSTEM_TYPES) {
-    const hasMin = system.id === 'grease';
-    for (const role of ['main', 'branch', 'runout']) {
-      assert.equal(
-        minVelocity(system.id, role) > 0,
-        hasMin,
-        `${system.id} ${role}`
-      );
-    }
+    assert.equal(minVelocity(system.id) > 0, system.id === 'grease', system.id);
   }
+  // Both systems size on equal friction now. Grease moved off constant velocity
+  // when the design basis did: ASHRAE RP-1033 showed grease deposition INCREASES
+  // with velocity, and NFPA 96 cut its minimum from 7.6 to 2.54 m/s in 2002.
   assert.equal(systemType('standard').sizingMethod, 'friction');
-  assert.equal(systemType('grease').sizingMethod, 'velocity');
+  assert.equal(systemType('grease').sizingMethod, 'friction');
   assert.equal(systemType('grease').allowsFlexible, false, 'no flex on grease extract');
   // The grease SYSTEM and the commercial-kitchen SPACE must not share an id:
   // they are different lookups and a typo between them would read silently.
@@ -783,72 +779,88 @@ test('no space carries a flexible-duct velocity entry any more', () => {
   assert.equal(systemType('grease').minVelocity.flex, undefined);
 });
 
-test('the friction ceiling stops a small duty becoming a screaming duct', () => {
-  // Floor sizing puts no lower bound on duct size, so a small duty is met with
-  // a tiny, screaming duct — 80 l/s here lands at Ø100, 10.2 m/s and 14.3 Pa/m.
-  // (On the shipped 50 mm list the same pathology shows at 200 l/s: Ø150,
-  // 11.3 m/s and 10.5 Pa/m. Which duty bites depends on the size list, which is
-  // why this uses the test list's own.)
+test('a velocity floor overrides the friction target on a small flow', () => {
+  // Sizing for Pa/m alone goes slack long before it goes noisy: at 200 l/s the
+  // friction target alone gives a duct the air barely moves through. The floor
+  // brings it back down a size, and the friction target is the thing that
+  // gives, which is reported rather than hidden.
   const base = {
     air: STANDARD_AIR,
     roughness: 0.00009,
-    method: 'velocity',
-    targetVelocity: 7.5,
-    maxVelocity: 12,
+    method: 'friction',
+    targetFriction: 1.0,
+    maxVelocity: 9,
     roundSizes: TEST_ROUND,
     rectSizes: TEST_RECT,
     useStandardSizes: true,
   };
-  const seg = { airflowLps: 80, shape: 'circular', lengthM: 10 };
-  const loose = calcSegment(seg, { ...base, maxFriction: 0 });
-  const capped = calcSegment(seg, { ...base, maxFriction: 6 });
+  const seg = { airflowLps: 200, shape: 'circular', lengthM: 10 };
+  const loose = calcSegment(seg, { ...base, minVelocity: 0 });
+  const floored = calcSegment(seg, { ...base, minVelocity: 5 });
 
-  assert.ok(loose.frictionRate > 6, `uncapped is ${loose.frictionRate.toFixed(1)} Pa/m`);
-  assert.ok(capped.heightMm > loose.heightMm, 'the ceiling makes the duct bigger');
-  assert.ok(capped.frictionRate <= 6 * 1.001, `capped is ${capped.frictionRate.toFixed(2)} Pa/m`);
-  assert.equal(capped.velocityCapSource, 'friction', 'and says which limit bound it');
-  assert.ok(capped.maxVelocityApplied < base.maxVelocity, 'effective cap is below the acoustic one');
-  // The trade is real and must be visible: the bigger duct runs slower than the
-  // transport minimum, which is exactly the thing not to resolve silently.
-  assert.ok(capped.velocity < base.targetVelocity);
-  assert.equal(capped.belowMinVelocity, true);
+  assert.ok(loose.velocity < 5, `unfloored is ${loose.velocity.toFixed(2)} m/s`);
+  assert.ok(floored.heightMm < loose.heightMm, 'the floor makes the duct smaller');
+  assert.ok(floored.velocity >= 5 / 1.001, `floored is ${floored.velocity.toFixed(2)} m/s`);
+  assert.equal(floored.belowMinVelocity, false);
+  assert.equal(floored.minVelocityApplied, 5);
+  // The friction target is what gives way, and that is said out loud.
+  assert.ok(floored.frictionRate > base.targetFriction);
+  assert.equal(floored.exceedsFrictionTarget, true);
 });
 
-test('the friction ceiling leaves a duty it does not bind on alone', () => {
+test('the velocity floor leaves a flow it does not bind on alone', () => {
   const base = {
     air: STANDARD_AIR,
     roughness: 0.00009,
-    method: 'velocity',
-    targetVelocity: 7.5,
-    maxVelocity: 12,
+    method: 'friction',
+    targetFriction: 1.0,
+    maxVelocity: 9,
     roundSizes: TEST_ROUND,
     rectSizes: TEST_RECT,
     useStandardSizes: true,
   };
   const seg = { airflowLps: 2500, shape: 'circular', lengthM: 10 };
-  const loose = calcSegment(seg, { ...base, maxFriction: 0 });
-  const capped = calcSegment(seg, { ...base, maxFriction: maxFriction('grease', 'runout') });
-  assert.equal(capped.heightMm, loose.heightMm, 'same size');
-  assert.equal(capped.velocityCapSource, 'noise', 'the acoustic limit is what binds here');
-  assert.equal(capped.ruleMet, true);
+  const loose = calcSegment(seg, { ...base, minVelocity: 0 });
+  const floored = calcSegment(seg, { ...base, minVelocity: 5 });
+  assert.equal(floored.heightMm, loose.heightMm, 'same size');
+  assert.equal(floored.ruleMet, true);
+  assert.ok(floored.frictionRate <= base.targetFriction * 1.001);
 });
 
-test('the friction ceiling applies to runouts and nothing else', () => {
-  // A runout is short and reachable, so trading its transport velocity away to
-  // avoid a screaming duct is cheap. The main and riser are the longest, least
-  // accessible, hardest-to-clean part of the run, so there the transport
-  // velocity holds whatever it costs in Pa/m.
-  assert.ok(maxFriction('grease', 'runout') > 0);
-  assert.equal(maxFriction('grease', 'main'), 0);
-  assert.equal(maxFriction('grease', 'branch'), 0);
-  assert.equal(maxFriction('standard', 'runout'), 0, 'friction systems have no ceiling');
+test('a rectangular duct honours the velocity floor too', () => {
+  const r = calcSegment(
+    { airflowLps: 200, shape: 'rectangular', lengthM: 10 },
+    {
+      air: STANDARD_AIR,
+      roughness: 0.00009,
+      method: 'friction',
+      targetFriction: 1.0,
+      minVelocity: 5,
+      maxVelocity: 9,
+      roundSizes: TEST_ROUND,
+      rectSizes: TEST_RECT,
+      useStandardSizes: true,
+      preferredAspect: 1.5,
+      maxAspect: 2,
+    }
+  );
+  assert.ok(r.velocity >= 5 / 1.001, `${r.velocity.toFixed(2)} m/s`);
+  assert.ok(r.aspectRatio <= 2 + 1e-9, `aspect ${r.aspectRatio.toFixed(2)}`);
 });
 
-test('the grease minimum falls from main to runout', () => {
-  // The main/riser is the longest, least accessible part of the run and the
-  // hardest to clean, so it carries the highest minimum.
-  assert.ok(minVelocity('grease', 'main') >= minVelocity('grease', 'branch'));
-  assert.ok(minVelocity('grease', 'branch') >= minVelocity('grease', 'runout'));
+test('the grease velocity band is flat across the roles', () => {
+  // It is a bound on how slack the air may get, not a per-position transport
+  // requirement — the transport reading of these figures is the pre-2002 one.
+  assert.equal(typeof systemType('grease').minVelocity, 'number');
+  assert.ok(systemType('grease').maxVelocity > systemType('grease').minVelocity);
+  // The one velocity figure that is a code requirement, and it applies at
+  // turndown rather than at design flow.
+  assert.ok(systemType('grease').minVelocityTurndown < systemType('grease').minVelocity);
+});
+
+test('grease extract is held to a tighter aspect ratio than the project default', () => {
+  assert.equal(systemType('grease').maxAspect, 2);
+  assert.equal(systemType('standard').maxAspect, undefined, 'the project limit applies');
 });
 
 test('standard size lists are sorted ascending', () => {

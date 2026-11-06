@@ -24,7 +24,6 @@ import {
   shapesForSystem,
   maxVelocity,
   minVelocity,
-  maxFriction,
   ROUND_SIZES,
   RECT_SIZES,
   FLEX_SIZES,
@@ -49,14 +48,13 @@ const DEFAULT_MAX_VELOCITY = Object.fromEntries(
   ])
 );
 
-/** Minimum transport velocity by role — kitchen grease extract only. The
- * friction target is what stops a friction-sized duct being oversized, so the
- * other system needs no floor. */
-const DEFAULT_MIN_VELOCITY = { ...systemType('grease').minVelocity };
-
-/** Friction ceiling for a grease RUNOUT, Pa/m — the small-duct guard. Mains and
- * branches have none: there the transport velocity holds whatever it costs. */
-const DEFAULT_MAX_FRICTION = maxFriction('grease', 'runout');
+/* Grease extract carries its own velocity band on top of the space's acoustic
+ * maximum — a floor that overrides the friction target on small flows, and a
+ * ceiling from DW/172's extract-main range. Both editable. */
+const DEFAULT_GREASE_MIN_VELOCITY = systemType('grease').minVelocity;
+const DEFAULT_GREASE_MAX_VELOCITY = systemType('grease').maxVelocity;
+/** NFPA 96 / IMC 506.3.4, 500 fpm — checked at turndown, not design flow. */
+const DEFAULT_TURNDOWN_VELOCITY = systemType('grease').minVelocityTurndown;
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -212,8 +210,11 @@ function defaultState() {
     // there is no reason for it to vary by room.
     frictionTarget: DEFAULT_FRICTION_TARGET,
     maxVelocities: JSON.parse(JSON.stringify(DEFAULT_MAX_VELOCITY)),
-    minVelocities: { ...DEFAULT_MIN_VELOCITY },
-    greaseMaxFriction: DEFAULT_MAX_FRICTION,
+    greaseMinVelocity: DEFAULT_GREASE_MIN_VELOCITY,
+    greaseMaxVelocity: DEFAULT_GREASE_MAX_VELOCITY,
+    turndownVelocity: DEFAULT_TURNDOWN_VELOCITY,
+    // % of design flow at minimum turndown; 0 = constant volume, no check.
+    turndownPct: 0,
     segments: [newSegment()],
   };
 }
@@ -245,25 +246,38 @@ function maxVelocityFor(spaceId, roleKey) {
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
-/** Minimum velocity for a system + duct role, or 0 where the system has none.
- * Only kitchen grease extract does. */
-function minVelocityFor(systemId, roleKey) {
-  if (!systemType(systemId).minVelocity) return 0;
-  const v = state.minVelocities?.[roleKey];
-  const def = DEFAULT_MIN_VELOCITY[roleKey] ?? minVelocity(systemId, roleKey);
-  return Number.isFinite(v) && v > 0 ? v : def;
+/** Velocity floor for a system, m/s, or 0 where it has none. Grease only. */
+function minVelocityFor(systemId) {
+  if (!(minVelocity(systemId) > 0)) return 0;
+  const v = state.greaseMinVelocity;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_GREASE_MIN_VELOCITY;
 }
 
-/** Friction ceiling for a system + duct role, Pa/m, or 0 where there is none. */
-function maxFrictionFor(systemId, roleKey) {
-  if (!(maxFriction(systemId, roleKey) > 0)) return 0;
-  const v = state.greaseMaxFriction;
-  return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_FRICTION;
+/** A system's own velocity ceiling, m/s, or Infinity where it has none. */
+function systemMaxVelocityFor(systemId) {
+  if (!(systemType(systemId).maxVelocity > 0)) return Infinity;
+  const v = state.greaseMaxVelocity;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_GREASE_MAX_VELOCITY;
 }
 
-/** The pair the UI and sizing both work from. `min` is 0 where there is none. */
+/**
+ * The band the UI and sizing both work from.
+ *
+ * The maximum is whichever binds first — the space's acoustic limit or the
+ * system's own. Grease extract carries both: DW/172 caps an extract main at
+ * 9 m/s wherever it runs, and a tighter space caps it further still.
+ */
 function limitsFor(spaceId, systemId, roleKey) {
-  return { min: minVelocityFor(systemId, roleKey), max: maxVelocityFor(spaceId, roleKey) };
+  return {
+    min: minVelocityFor(systemId),
+    max: Math.min(maxVelocityFor(spaceId, roleKey), systemMaxVelocityFor(systemId)),
+  };
+}
+
+/** Aspect-ratio limit: a system may hold itself tighter than the project does. */
+function maxAspectFor(systemId) {
+  const sys = systemType(systemId).maxAspect;
+  return Math.min(num(state.maxAspect, 4), sys ?? Infinity);
 }
 
 let state = load() ?? defaultState();
@@ -328,10 +342,19 @@ function normaliseState(parsed) {
       ...(parsed.maxVelocities?.[spaceId] ?? {}),
     };
   }
-  merged.minVelocities = { ...defaults.minVelocities, ...(parsed.minVelocities ?? {}) };
-  if (!(Number.isFinite(merged.greaseMaxFriction) && merged.greaseMaxFriction > 0)) {
-    merged.greaseMaxFriction = DEFAULT_MAX_FRICTION;
+  // Grease extract sized to a per-role minimum transport velocity under a Pa/m
+  // ceiling until the design basis moved it to equal friction with a two-sided
+  // velocity check; neither of those shapes survives.
+  delete merged.minVelocities;
+  delete merged.greaseMaxFriction;
+  for (const [key, def] of [
+    ['greaseMinVelocity', DEFAULT_GREASE_MIN_VELOCITY],
+    ['greaseMaxVelocity', DEFAULT_GREASE_MAX_VELOCITY],
+    ['turndownVelocity', DEFAULT_TURNDOWN_VELOCITY],
+  ]) {
+    if (!(Number.isFinite(merged[key]) && merged[key] > 0)) merged[key] = def;
   }
+  if (!Number.isFinite(merged.turndownPct) || merged.turndownPct < 0) merged.turndownPct = 0;
   // Old recommended/max pairs keyed to the retired space buckets.
   delete merged.velocityLimits;
 
@@ -568,14 +591,14 @@ function context(segment) {
     targetFriction: frictionTarget(),
     targetVelocity: limits.min,
     maxVelocity: limits.max,
-    // Velocity mode, runouts only: the Pa/m ceiling that stops a small duty
-    // being met with a tiny, screaming duct.
-    maxFriction: maxFrictionFor(state.systemTypeId, roleKey),
+    // Friction mode: the floor that overrides the friction target on a small
+    // flow, where sizing for Pa/m alone leaves the air slack.
+    minVelocity: limits.min,
     roundSizes: sizesForShape(segment.shape),
     rectSizes: sizeListFor('rect'),
     useStandardSizes: state.useStandardSizes,
     preferredAspect: 1.5,
-    maxAspect: num(state.maxAspect, 4),
+    maxAspect: maxAspectFor(state.systemTypeId),
     maxHeightMm: num(state.maxHeightMm, 0) > 0 ? num(state.maxHeightMm) : Infinity,
     limits,
     roleKey,
@@ -802,7 +825,7 @@ function renderSettingsTargets() {
     `the system chosen on the main page sets the sizing method.`;
 
   $('#settings-target-friction').value = frictionTarget();
-  $('#settings-grease-max-friction').value = maxFrictionFor('grease', 'runout');
+
 
   /* -- the space's acoustic maxima --------------------------------- */
   $('#settings-velocity-matrix').replaceChildren(
@@ -829,28 +852,11 @@ function renderSettingsTargets() {
     )
   );
 
-  /* -- grease transport minimums, which belong to the system -------- */
-  const grease = systemType('grease');
-  $('#settings-min-matrix').replaceChildren(
-    el('div', { class: 'vel-matrix-head' }, [el('span'), el('span', { text: 'Min m/s' })]),
-    ...VEL_ROLE_ORDER.map((roleKey) =>
-      el('div', { class: 'vel-row two' }, [
-        el('span', { class: 'vel-role', text: VEL_ROLE_LABELS[roleKey] }),
-        el('input', {
-          type: 'number',
-          inputmode: 'decimal',
-          step: '0.5',
-          min: '0',
-          value: minVelocityFor('grease', roleKey),
-          'aria-label': `${grease.name} ${VEL_ROLE_LABELS[roleKey]} minimum transport velocity`,
-          oninput: (e) => {
-            state.minVelocities[roleKey] = num(e.target.value, minVelocityFor('grease', roleKey));
-            update();
-          },
-        }),
-      ])
-    )
-  );
+  /* -- the grease band, which belongs to the system ----------------- */
+  $('#settings-grease-min').value = minVelocityFor('grease');
+  $('#settings-grease-max').value = systemMaxVelocityFor('grease');
+  $('#settings-turndown-pct').value = state.turndownPct || '';
+  $('#settings-turndown-velocity').value = num(state.turndownVelocity, DEFAULT_TURNDOWN_VELOCITY);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1295,7 +1301,7 @@ function update() {
   const { results, run, air } = compute();
   const space = spaceType(state.spaceTypeId);
   const system = systemType(state.systemTypeId);
-  const isFloor = system.sizingMethod === 'velocity';
+  const isGrease = system.id === 'grease';
 
   /* -- per-segment -------------------------------------------------- */
   results.forEach(({ seg, ctx, result }, i) => {
@@ -1312,8 +1318,8 @@ function update() {
     const roleLabel =
       seg.shape === 'flexible' ? 'flexible duct' : DUCT_ROLES.find((r) => r.id === seg.role).name.toLowerCase();
     $('.js-limit-hint', card).textContent = ctx.limits.min > 0
-      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s — minimum for grease ` +
-        `transport, maximum for ${space.short.toLowerCase()} (${space.nr})`
+      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s at design flow ` +
+        `(${space.short.toLowerCase()}, ${space.nr})`
       : `${roleLabel}: max ${fmt(ctx.limits.max, 1)} m/s for ${space.short.toLowerCase()} (${space.nr})`;
 
     $$('.js-fit-loss', card).forEach((node) => {
@@ -1363,26 +1369,35 @@ function update() {
           `${fmt(ctx.limits.max, 1)} m/s acoustic maximum for ${space.name.toLowerCase()} — no size ` +
           `satisfies both. Route it through a less sensitive space, or attenuate and relax the limit.`,
       });
-    } else if (isFloor) {
-      if (result.velocity > ctx.limits.max) {
-        flags.push({
-          level: 'bad',
-          text: result.velocityCapSource === 'friction'
-            ? `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds ${fmt(result.maxVelocityApplied, 1)} m/s, the most the ${fmt(result.frictionCeiling, 1)} Pa/m runout ceiling allows at this duty`
-            : `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s maximum (erosion/noise)`,
-        });
-      } else if (result.velocity > 0 && result.velocity < ctx.limits.min) {
-        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s is below the ${fmt(ctx.limits.min, 1)} m/s minimum — risk of settling/buildup` });
-      }
+    } else if (result.velocity > 0 && ctx.limits.min > 0 && result.belowMinVelocity) {
+      flags.push({
+        level: 'bad',
+        text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s is below the ${fmt(ctx.limits.min, 1)} m/s design-flow minimum`,
+      });
     } else {
       const status = velocityStatus(result.velocity, ctx.limits);
       if (status === 'bad') {
-        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s limit for ${space.name.toLowerCase()}` });
+        flags.push({ level: 'bad', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s limit` });
       } else if (status === 'warn') {
-        flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s is close to the ${fmt(ctx.limits.max, 1)} m/s limit for ${space.name.toLowerCase()}` });
+        flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s is close to the ${fmt(ctx.limits.max, 1)} m/s limit` });
       }
     }
-    if (result.shape === 'rectangular' && result.aspectRatio > num(state.maxAspect, 4)) {
+
+    // NFPA 96 / IMC 506.3.4: 500 fpm at minimum turndown. The one velocity
+    // figure here that is a code requirement rather than guidance — and it
+    // applies at the turndown flow of a VSD or DCKV system, not at design flow.
+    if (isGrease && num(state.turndownPct, 0) > 0 && result.velocity > 0) {
+      const turndownV = result.velocity * (num(state.turndownPct, 0) / 100);
+      const floor = num(state.turndownVelocity, DEFAULT_TURNDOWN_VELOCITY);
+      if (turndownV < floor) {
+        flags.push({
+          level: 'bad',
+          text: `Seg ${i}: ${fmt(turndownV, 2)} m/s at ${fmt0(num(state.turndownPct, 0))} % turndown — ` +
+            `below the ${fmt(floor, 2)} m/s code minimum (NFPA 96 / IMC 506.3.4)`,
+        });
+      }
+    }
+    if (result.shape === 'rectangular' && result.aspectRatio > maxAspectFor(state.systemTypeId) + 1e-9) {
       flags.push({ level: 'warn', text: `Seg ${i}: aspect ratio ${fmt(result.aspectRatio, 1)}:1 — costly and hard to fit` });
     }
     if (result.shape === 'flexible' && result.lengthM > 3) {
@@ -1397,15 +1412,13 @@ function update() {
           `nearest available (${result.label}) shown. Add sizes in Settings.`,
       });
     }
-    // Ceiling mode sized to a friction target but could not hold it — an
-    // overridden size, or a duty past the end of the list.
+    // Sized to the friction target but could not hold it — an overridden size,
+    // a duty past the end of the list, or the velocity floor overriding it.
     if (result.exceedsFrictionTarget) {
-      // Name the right number: a friction TARGET on a ventilation system, a
-      // friction CEILING on grease extract.
       flags.push({
-        level: 'warn',
-        text: isFloor
-          ? `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(result.frictionCeiling, 1)} Pa/m runout ceiling — no listed size holds both that and the transport minimum`
+        level: result.velocityFloorOverrode ? 'info' : 'warn',
+        text: result.velocityFloorOverrode
+          ? `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m — the ${fmt(ctx.limits.min, 1)} m/s velocity floor overrides the ${fmt(frictionTarget(), 1)} Pa/m target at this flow, as intended`
           : `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(frictionTarget(), 1)} Pa/m target`,
       });
     }
@@ -1420,7 +1433,7 @@ function update() {
   if (pressureClassDependsOnSign(run.totalPa, run.maxVelocity)) {
     flags.push({
       level: 'warn',
-      text: isFloor
+      text: isGrease
         ? `Extract at ${fmt0(run.totalPa)} Pa — past the DW/144 negative limit for class B; check whether class C applies`
         : `${fmt0(run.totalPa)} Pa — an extract run here may need class C (DW/144 negative limit); supply is unaffected`,
     });
@@ -1447,8 +1460,8 @@ function update() {
   // Ceiling runs (friction-sized) care about the FASTEST segment — the one
   // closest to being too noisy. Floor runs (velocity-sized, kitchen grease
   // extract) care about the SLOWEST — the one closest to settling out.
-  const headlineVelocity = isFloor ? run.minVelocity : run.maxVelocity;
-  const headlineVelocityLabel = isFloor ? 'min velocity m/s' : 'max velocity m/s';
+  const headlineVelocity = run.maxVelocity;
+  const headlineVelocityLabel = 'max velocity m/s';
 
   $('#run-grid').replaceChildren(
     metric(`${fmt(run.totalPa, 1)} Pa`, 'total branch pressure drop', 'hero'),
@@ -1465,8 +1478,8 @@ function update() {
     // The headline shows whichever end of the velocity range the sizing method
     // cares about; this is the other end, so both are on the page.
     metric(
-      fmt(isFloor ? run.maxVelocity : run.minVelocity, 2),
-      isFloor ? 'max velocity m/s' : 'min velocity m/s'
+      fmt(run.minVelocity, 2),
+      'min velocity m/s'
     )
   );
 
@@ -1492,7 +1505,7 @@ function update() {
   const velNode = $('#sum-vel');
   velNode.textContent = fmt(headlineVelocity, 1);
   velNode.className = `sum-val ${worstVelocityStatus}`;
-  $('#sum-vel-key').textContent = isFloor ? 'min m/s' : 'max m/s';
+  $('#sum-vel-key').textContent = 'max m/s';
   $('#sum-rate').textContent = first ? fmt(first.frictionRate, 2) : '—';
   $('#sum-total').textContent = fmt(run.totalPa, 0);
 
@@ -1502,8 +1515,10 @@ function update() {
     `barometric ${fmt0(air.pressurePa / 100)} mbar`;
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
-  $('#space-hint').textContent = isFloor
-    ? `${space.useCase} · ${space.nr} sets the maximum · constant velocity, sized to a minimum transport velocity per duct role, runouts capped at ${fmt(maxFrictionFor(state.systemTypeId, 'runout'), 1)} Pa/m`
+  const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main');
+  $('#space-hint').textContent = isGrease
+    ? `${space.useCase} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
+      `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s at design flow, floor overrides Pa/m on small flows`
     : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`;
 
   save();
@@ -1524,7 +1539,7 @@ function summaryText() {
   const methodLine =
     systemType(state.systemTypeId).sizingMethod === 'friction'
       ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`
-      : `constant velocity, minimum transport velocity per duct role, runouts capped at ${fmt(maxFrictionFor(state.systemTypeId, 'runout'), 1)} Pa/m`;
+      : `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m, held to ${fmt(minVelocityFor(state.systemTypeId), 1)}–${fmt(systemMaxVelocityFor(state.systemTypeId), 1)} m/s`;
   const lines = [
     `DUCT — ${state.project || 'Untitled'}`,
     `${space.name} (${space.nr}) · ${systemType(state.systemTypeId).name} · ${methodLine}`,
@@ -1683,16 +1698,32 @@ function init() {
     update();
   });
 
-  $('#settings-grease-max-friction').addEventListener('input', (e) => {
-    state.greaseMaxFriction = num(e.target.value, maxFrictionFor('grease', 'runout'));
+  $('#settings-grease-min').addEventListener('input', (e) => {
+    state.greaseMinVelocity = num(e.target.value, DEFAULT_GREASE_MIN_VELOCITY);
+    update();
+  });
+
+  $('#settings-grease-max').addEventListener('input', (e) => {
+    state.greaseMaxVelocity = num(e.target.value, DEFAULT_GREASE_MAX_VELOCITY);
+    update();
+  });
+
+  $('#settings-turndown-pct').addEventListener('input', (e) => {
+    state.turndownPct = Math.max(num(e.target.value, 0), 0);
+    update();
+  });
+
+  $('#settings-turndown-velocity').addEventListener('input', (e) => {
+    state.turndownVelocity = num(e.target.value, DEFAULT_TURNDOWN_VELOCITY);
     update();
   });
 
   $('#settings-reset-targets').addEventListener('click', () => {
     state.frictionTarget = DEFAULT_FRICTION_TARGET;
     state.maxVelocities = JSON.parse(JSON.stringify(DEFAULT_MAX_VELOCITY));
-    state.minVelocities = { ...DEFAULT_MIN_VELOCITY };
-    state.greaseMaxFriction = DEFAULT_MAX_FRICTION;
+    state.greaseMinVelocity = DEFAULT_GREASE_MIN_VELOCITY;
+    state.greaseMaxVelocity = DEFAULT_GREASE_MAX_VELOCITY;
+    state.turndownVelocity = DEFAULT_TURNDOWN_VELOCITY;
     renderSettingsTargets();
     update();
     toast('Reset to default targets');

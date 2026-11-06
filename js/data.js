@@ -218,73 +218,65 @@ export const SYSTEM_TYPES = [
     name: 'Kitchen grease extract',
     short: 'Kitchen',
     useCase: 'Commercial kitchen canopies & grease ducts',
-    sizingMethod: 'velocity',
+    /**
+     * EQUAL FRICTION, like everything else — not constant velocity.
+     *
+     * This used to size to a minimum transport velocity, on the standard
+     * reasoning that slower air lets grease settle out. That reasoning is
+     * pre-2002 and was overturned: ASHRAE RP-1033 (Kuehn) showed grease
+     * deposition INCREASES with velocity, and NFPA 96 cut its minimum from
+     * 1500 fpm (7.6 m/s) to 500 fpm (2.54 m/s) by Errata 96-01-01 in January
+     * 2002. Any source quoting 7.5 m/s "to keep grease in suspension" predates
+     * that. AS 1668.2-2002 sets no in-duct velocity at all — only hood face
+     * (Type A capture 0.5 m/s, dishwasher 0.3 m/s) and discharge (5 m/s).
+     *
+     * So the duct is sized on the project friction target at full design flow,
+     * with velocity as a two-sided check rather than the sizing input.
+     */
+    sizingMethod: 'friction',
     // Flexible duct is not normally fire-code permitted for grease extract
     // (e.g. NFPA 96 / DW/172), so it is not offered as a duct type here.
     allowsFlexible: false,
     /**
-     * MINIMUM transport velocity by role, m/s. DW/172-style indicative figures;
-     * confirm against the canopy duty and the standard you design to.
+     * Velocity floor at full design flow, m/s. Judgement, taken at the lower
+     * bound of DW/172's branch range. It OVERRIDES the friction target on small
+     * flows: sizing for Pa/m alone leaves a small duct oversized and the air
+     * slack, so the duct comes back down a size to hold this instead.
      *
-     * READ THIS BEFORE TRUSTING THESE NUMBERS. The premise they encode — that
-     * slower air lets grease settle out — is the one US research and code moved
-     * away from. ASHRAE RP-1033 tested 500, 1,000, 1,500 and 2,000 fpm and found
-     * grease deposition is REDUCED as velocity is reduced; on the back of it
-     * NFPA 96 cut its minimum from 1,500 fpm (7.6 m/s) to 500 fpm (2.5 m/s) in
-     * March 2002. 7.5 m/s is almost exactly the figure that research retired.
-     *
-     * UK and Australian practice did not follow. DW/172 still gives 6–9 m/s for
-     * main runs and 5–7 m/s for branches, which is where these defaults sit, and
-     * AIRAH's 5th edition reportedly recommended 10 m/s. Meanwhile AS 1668.2
-     * appears to set NO in-duct velocity requirement at all — only a discharge
-     * minimum (≥ 5 m/s to outside, Cl. 3.10.3).
-     *
-     * So the honest position is a 3x spread between codes (2.5 to 10 m/s) with
-     * no consensus, and a project designing to AS 1668 has no mandated in-duct
-     * figure to meet. These defaults follow DW/172 because that is the most
-     * conservative widely-used guidance, not because it is settled. All of the
-     * above came through SECONDARY sources — the RP-1033 report and the
-     * standards themselves are paywalled — so check before specifying.
-     *
-     * The main/riser carries the highest minimum because it is the longest,
-     * least accessible part of the run and the hardest to clean; branches and
-     * runouts are shorter and reachable, so they sit lower.
-     *
-     * The MAXIMUM still comes from the space the duct runs through, which is
-     * the point of splitting the two: the same grease duct gets 12 m/s of
-     * headroom in a riser and 9 m/s where it crosses a restaurant.
+     * Not a grease-suspension figure — see the note on sizingMethod. It is
+     * there to stop a small duty producing a duct nothing moves through.
      */
-    minVelocity: { main: 7.5, branch: 6.0, runout: 6.0 },
+    minVelocity: 5.0,
     /**
-     * Friction CEILING by role, Pa/m — the small-duct guard. RUNOUTS ONLY.
+     * Velocity ceiling at full design flow, m/s. DW/172 gives 6–9 m/s for
+     * extract mains; 9 is the top of that. Short risers can take ~10 if noise
+     * allows, which is a per-job override rather than a default. There is no
+     * code maximum; the US industry norm is 2500 fpm (12.7 m/s), set by noise.
      *
-     * Sizing to a minimum velocity puts no lower bound on duct size, so at small
-     * duties it will happily pick something tiny and screaming: holding 7.5 m/s
-     * at 100 l/s costs 5.8 Pa/m, and at 50 l/s, 8.9 Pa/m. This caps that. It
-     * sets a minimum diameter, so it acts as an upper bound on velocity, and
-     * where it bites the duct goes UP a size and the velocity falls below the
-     * transport minimum — which is then flagged, because that is a real
-     * trade-off between fan energy and keeping grease entrained, not something
-     * to resolve silently.
-     *
-     * It applies to runouts alone, and that asymmetry is the point. A runout is
-     * short and reachable, so relaxing its transport velocity to avoid a
-     * screaming duct is a cheap trade. The main and riser are the longest, least
-     * accessible, hardest-to-clean part of the run — there the transport
-     * velocity holds whatever it costs in Pa/m, and a small main that reads hot
-     * is telling you something true rather than something to be capped away.
-     *
-     * 6.0 Pa/m was picked against ACTUAL selections, not against the rate at the
-     * minimum velocity — floor sizing snaps DOWN, so it deliberately lands at
-     * the fast end of the band and runs hotter than the at-minimum figure
-     * suggests. Tightening it to 3.0 looks reasonable on paper and is not: it
-     * narrows the band below one standard size step, so most duties then satisfy
-     * neither bound.
-     *
-     * Raise it to protect the transport velocity further down; lower it to keep
-     * small runouts quieter and cheaper to run.
+     * The SPACE the duct runs through caps it further — see `maxVelocity`.
      */
-    maxFriction: { runout: 6.0 },
+    maxVelocity: 9.0,
+    /**
+     * Velocity floor at minimum turndown, m/s — NFPA 96 / IMC 506.3.4
+     * (500 fpm). This is the one velocity figure that is a code requirement
+     * rather than guidance, and it applies at the turndown flow of a VSD or
+     * DCKV system, not at design flow. Checked separately; see `turndownPct`
+     * on a segment.
+     */
+    minVelocityTurndown: 2.5,
+    /** Hood spigot connection velocity, m/s — DW/172 practice. Advisory. */
+    spigotVelocity: [5.0, 7.0],
+    /**
+     * Discharge velocity, m/s. AS 1668.2-2002 cl. 5.10.3 requires ≥ 5 m/s
+     * vertical for systems over 1000 l/s. UK planning practice asks for 10–15
+     * near sensitive receptors, so 10 is the target rather than the minimum.
+     */
+    dischargeMin: 5.0,
+    dischargeTarget: 10.0,
+    /** Round or square preferred; rectangular held to 2:1. */
+    maxAspect: 2,
+    /** Design air density, kg/m³ — roughly 35 °C, not 20 °C room air. */
+    designDensity: 1.15,
   },
 ];
 
@@ -340,22 +332,13 @@ export function maxVelocity(spaceId, roleId) {
 }
 
 /**
- * Minimum velocity for a system + duct role, m/s, or 0 where there is none.
- * Only kitchen grease extract has one; the friction target is what stops a
- * friction-sized duct being oversized.
+ * Velocity floor at design flow for a system, m/s, or 0 where there is none.
+ * Only kitchen grease extract has one, and it is flat across the roles: the
+ * figure is a lower bound on how slack the air may get, not a per-position
+ * transport requirement.
  */
-export function minVelocity(systemId, roleId) {
-  const system = systemType(systemId);
-  if (!system.minVelocity) return 0;
-  return system.minVelocity[roleId] ?? system.minVelocity.branch;
-}
-
-/**
- * Friction ceiling for a system + duct role, Pa/m, or 0 where there is none.
- * Only the grease system has one, and only on runouts — see the note above.
- */
-export function maxFriction(systemId, roleId) {
-  return systemType(systemId).maxFriction?.[roleId] ?? 0;
+export function minVelocity(systemId) {
+  return systemType(systemId).minVelocity ?? 0;
 }
 
 export function material(id) {
@@ -415,6 +398,7 @@ export const FITTINGS = [
 
   // --- terminations ---------------------------------------------------
   { id: 'entry_sharp', name: 'Duct entry, sharp edged', zeta: 0.5, group: 'Entries & exits', shapes: ['circular', 'rectangular', 'flexible'] },
+  { id: 'hood_entry', name: 'Canopy hood entry', zeta: 0.75, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
   { id: 'entry_bell', name: 'Duct entry, bellmouth', zeta: 0.05, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
   { id: 'exit', name: 'Discharge to still air', zeta: 1.0, group: 'Entries & exits', shapes: ['circular', 'rectangular', 'flexible'] },
   { id: 'louvre', name: 'Weather louvre (free area 50 %)', zeta: 2.5, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
@@ -429,6 +413,9 @@ export const FITTINGS = [
 
   // --- fixed-pressure items (ζ ignored, Pa entered directly) ----------
   { id: 'grille', name: 'Grille / diffuser', fixedPa: 25, group: 'Fixed loss', shapes: ['circular', 'rectangular', 'flexible'] },
+  // Kitchen grease extract fan-duty build-up: dirty baffle filters (supplier
+  // data, typically 100–150 Pa) and the hood entry (K 0.5–1.0).
+  { id: 'baffle', name: 'Baffle filters, dirty', fixedPa: 125, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'silencer', name: 'Attenuator / silencer', fixedPa: 40, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'filter', name: 'Filter (dirty)', fixedPa: 150, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'coil', name: 'Heating / cooling coil', fixedPa: 80, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
