@@ -1182,3 +1182,22 @@ Effect, 4 m runout:
 
 Ø550 at 3.5 m/s holds ~830 l/s; above that flex flags "no size in your list".
 The §16–17 tables above were run on the earlier list.
+
+## 20. Flexible friction ceiling default 8 → 4 Pa/m
+
+User's choice. Saves still holding the old 8 Pa/m default move to 4; any other
+saved value is kept. Velocity still governs above ~120 l/s; the ceiling now
+bites on the small sizes at Typical 15 %:
+
+| l/s | Tight 4 % | Typical 15 % |
+|---|---|---|
+| 30 | Ø150 0.9 Pa/m | Ø150 2.2 |
+| 60 | Ø150 3.4 | Ø200 1.5 |
+| 80 | Ø200 1.2 | Ø200 2.7 |
+| 100 | Ø200 1.8 | Ø250 1.1 |
+| 150 | Ø250 1.1 | Ø250 2.4 |
+| 250 | Ø350 0.5 | Ø350 0.8 |
+| 400 | Ø400 0.5 | Ø400 0.9 |
+
+At Typical 15 % the ceiling limits Ø150 to ~42 l/s and Ø200 to ~99 l/s; a 3 m
+compressed runout loses at most ~12 Pa.

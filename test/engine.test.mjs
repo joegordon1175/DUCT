@@ -1054,7 +1054,7 @@ test('flex conditions are Tight 4 % and Typical 15 %, Typical the default', () =
   assert.deepEqual(FLEX_CONDITIONS.map((c) => c.compression), [0.04, 0.15]);
   assert.equal(DEFAULT_FLEX_CONDITION, 'c15');
   assert.deepEqual(FLEX_SIZES, [150, 200, 250, 300, 350, 400, 450, 500, 550]);
-  assert.equal(FLEX_MAX_FRICTION, 8.0);
+  assert.equal(FLEX_MAX_FRICTION, 4.0);
 });
 
 const flexCtx = (compression, over = {}) =>
@@ -1067,24 +1067,29 @@ const flexCtx = (compression, over = {}) =>
     ...over,
   });
 
-test('flexible duct sizes on velocity: compression up to 15 % does not move the size', () => {
-  for (const flow of [100, 150, 250, 400]) {
-    const sizes = FLEX_CONDITIONS.map(
-      (c) => calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(c.compression)).heightMm
-    );
-    // Velocity governs, so compression does not move the size at these flows.
-    assert.ok(sizes.every((d) => d === sizes[0]), `${flow} l/s sizes vary with compression: ${sizes}`);
-    const r = calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
-    assert.ok(r.velocity <= FLEX_MAX_VELOCITY + 1e-9, `${flow} l/s within 3.5 m/s`);
+test('flexible duct: velocity cap, friction ceiling, and Typical never smaller than Tight', () => {
+  for (const flow of [30, 60, 100, 150, 250, 400, 600]) {
+    const seg = { airflowLps: flow, shape: 'flexible', lengthM: 4 };
+    const [tight, typical] = FLEX_CONDITIONS.map((c) => calcSegment(seg, flexCtx(c.compression)));
+    for (const r of [tight, typical]) {
+      assert.ok(r.velocity <= FLEX_MAX_VELOCITY + 1e-9, `${flow} l/s within 3.5 m/s`);
+      assert.ok(r.frictionRate <= FLEX_MAX_FRICTION + 1e-9, `${flow} l/s within ${FLEX_MAX_FRICTION} Pa/m, got ${r.frictionRate}`);
+    }
+    assert.ok(typical.heightMm >= tight.heightMm, `${flow} l/s: Typical must not be smaller than Tight`);
+  }
+  // Large flows are velocity-governed: compression does not move the size.
+  for (const flow of [250, 400, 600]) {
+    const seg = { airflowLps: flow, shape: 'flexible', lengthM: 4 };
+    assert.equal(calcSegment(seg, flexCtx(0.04)).heightMm, calcSegment(seg, flexCtx(0.15)).heightMm, `${flow} l/s`);
   }
 });
 
-test('8 Pa/m backstop upsizes small compressed flex', () => {
-  const r = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
-  assert.equal(r.heightMm, 200, 'Ø150 would be ~8.2 Pa/m, so the ceiling steps to Ø200');
-  assert.ok(r.frictionRate <= FLEX_MAX_FRICTION, `got ${r.frictionRate}`);
-  const taut = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.04));
-  assert.equal(taut.heightMm, 150, 'taut Ø150 holds the ceiling');
+test('4 Pa/m backstop upsizes small compressed flex', () => {
+  const at = (flow, rc) => calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(rc));
+  assert.equal(at(60, 0.15).heightMm, 200, 'Ø150 would be ~8.2 Pa/m');
+  assert.equal(at(100, 0.15).heightMm, 250, 'Ø200 would be ~4.1 Pa/m');
+  assert.equal(at(100, 0.04).heightMm, 200, 'taut Ø200 is ~1.8 Pa/m and holds');
+  assert.equal(at(60, 0.04).heightMm, 150, 'taut Ø150 is ~3.4 Pa/m and holds');
 });
 
 test('a lower space runout limit governs flex velocity below 3.5 m/s', () => {

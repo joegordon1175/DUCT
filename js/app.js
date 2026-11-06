@@ -14,6 +14,7 @@ import {
   dustClass,
   FLEX_MAX_VELOCITY,
   FLEX_MAX_FRICTION,
+  LEGACY_FLEX_MAX_FRICTION,
   DEFAULT_FLEX_CONDITION,
   LEGACY_FLEX_SIZE_LISTS,
   DEFAULT_FRICTION_TARGET,
@@ -390,7 +391,9 @@ function normaliseState(parsed) {
       storedFlex.length === old.length && storedFlex.every((v, i) => v === old[i]))) {
     merged.sizeLists.flex = [...defaults.sizeLists.flex];
   }
-  if (!(Number.isFinite(merged.flexMaxFriction) && merged.flexMaxFriction > 0)) {
+  // An unedited save holds the old 8 Pa/m default: move it to the new one.
+  if (!(Number.isFinite(merged.flexMaxFriction) && merged.flexMaxFriction > 0) ||
+      merged.flexMaxFriction === LEGACY_FLEX_MAX_FRICTION) {
     merged.flexMaxFriction = FLEX_MAX_FRICTION;
   }
   /* -- space / system split -------------------------------------------
