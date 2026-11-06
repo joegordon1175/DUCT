@@ -2,8 +2,8 @@
 
 A mobile-first web app for HVAC ductwork sizing selections. Enter an airflow,
 pick the duct type and space type, and it sizes the duct, checks it against
-the velocity limits for that space and duct role, and totals the branch
-pressure drop as you type.
+the velocity limit for the space it serves, and totals the branch pressure
+drop as you type.
 
 No build step, no dependencies, works offline once loaded.
 
@@ -34,25 +34,62 @@ device that already has the app can keep showing the old version.
 
 | Input | Notes |
 |---|---|
-| Space type | Residential / Commercial / Kitchen Extract. Each has a **fixed** sizing method — see below — plus its own velocity limits per duct role. |
+| Space served | Sets the **maximum** velocity. Six acoustic bands from bedroom (NR 25) to riser/plant (NR 45+). |
+| System | Sets the **sizing method**. Air conditioning / ventilation, or kitchen grease extract. |
 | Snap to standard sizes | On by default; off gives the exact calculated size. |
 
-The sizing method and its target aren't editable here — they're read-only,
-shown right under the space-type picker, so they can't be changed by accident
-mid-job. Fine-tune the actual numbers in Settings.
+These are two settings because two different physical causes are at work, and
+keeping them apart is what lets the app express things the old
+Residential/Commercial split could not.
 
-| Space type | Sizing method | Why |
+**Space served sets the maximum**, because noise is the only thing driving the
+upper band — and the noise requirement belongs to the space, not the building.
+A hotel bedroom and a house bedroom want the same figure; an open-plan office
+and a classroom want the same; a riser is a riser in both. Sorting by building
+type was a label doing a job that belongs to the space, which is why it kept
+mis-fitting: it put a boardroom and a car park in the same bucket.
+
+| Space served | Noise band | Main | Branch | Runout |
+|---|---|---|---|---|
+| Bedroom / hotel room | NR 25 | 5.0 | 4.0 | 2.5 |
+| Living room / study | NR 30 | 6.0 | 5.0 | 3.0 |
+| Private office / meeting / classroom | NR 35 | 7.5 | 6.0 | 4.0 |
+| Open-plan office | NR 38 | 8.5 | 7.0 | 4.5 |
+| Retail / restaurant / circulation | NR 40 | 9.0 | 7.5 | 5.0 |
+| Toilet / back-of-house / riser / plant | NR 45+ | 12.0 | 9.0 | 6.0 |
+
+One number per role, not a recommended/maximum pair: there is a single acoustic
+limit, and the app shades the reading amber within 10 % of it rather than asking
+for a second figure that would only be the same judgement twice.
+
+**System sets the method.** Only two, because comfort A/C, fresh air, general
+extract and toilet extract all size identically — to the same friction target —
+so they are one system rather than three identical ones.
+
+| System | Sizing method | Why |
 |---|---|---|
-| Residential, Commercial | Constant friction rate (Pa/m) | Standard comfort-ventilation design; velocity is checked afterwards against a recommended/max range, not sized to. |
-| Kitchen Extract (commercial kitchens & canopies) | Constant velocity, as a **minimum** (m/s) | Air moving slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard duct sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+| Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
+| Kitchen grease extract | Constant velocity, as a **minimum** (m/s) | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+
+The useful consequence of splitting them: a grease duct's **minimum** comes from
+transport physics and its **maximum** from wherever it runs, so the same duct
+gets 12 m/s of headroom in a riser and 9 m/s where it crosses a restaurant. Pick
+a space whose maximum is below the transport minimum — a grease duct through a
+bedroom — and the app says which two settings are fighting rather than quietly
+picking one.
+
+**There is deliberately no minimum velocity on the air conditioning /
+ventilation system.** Constant friction already picks the smallest duct that
+holds the target, so the target *is* the anti-oversize control; a separate floor
+would be a second constraint saying the same thing.
 
 **Per segment** — add as many as the run needs
 
 | Input | Notes |
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
-| Duct role | Main / riser, branch, or runout — each has its own velocity target/limit (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limits regardless of role. |
-| Duct type | Circular, rectangular or flexible. Flexible isn't offered under Kitchen Extract — it's not normally fire-code permitted for grease extract (e.g. NFPA 96/DW/172); switching a run to Kitchen Extract converts any existing flexible segments to circular. |
+| Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
+| Duct type | Circular, rectangular or flexible. Flexible isn't offered on kitchen grease extract — it's not normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
@@ -61,11 +98,10 @@ mid-job. Fine-tune the actual numbers in Settings.
 | Fittings | Searchable library of ~45 fittings with editable ζ, plus quantity steppers. |
 | Extra fixed loss | Pa, for anything not in the library. |
 
-**Settings** — sizing targets per space type (friction target for
-Residential/Commercial; recommended/max velocity by duct role — main, branch,
-runout, and a separate set for flexible duct — for all three space types,
-editable and resettable independently of which space type is active on the
-main page), air temperature and altitude (drives density and viscosity),
+**Settings** — one project-wide friction target (Pa/m); maximum velocity by
+duct role — main, branch, runout, and a separate entry for flexible duct — for
+each of the six spaces, editable independently of which space is active on the
+main page; the grease transport minimums by role; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum
@@ -144,15 +180,14 @@ velocity). They differ by about 20 % on a 600 × 400, which changes `f`
 negligibly — both are fully turbulent — but a figure labelled "Reynolds
 number" should be the duct's.
 
-**Two sizing modes.** Friction-mode spaces (Residential, Commercial) size to
-a constant friction rate; velocity is only ever checked afterwards, so
-standard duct sizes snap *up* — always safe, since a bigger duct only ever
-lowers both the friction rate and the velocity further from their targets.
-Velocity-mode spaces (Kitchen Extract — commercial kitchens & canopies) size
-to a target velocity that's a **minimum**, not a ceiling, so the same snap-up
-rule would be wrong: rounding up to the next standard size lowers the
-velocity, which is exactly the direction that lets grease settle out and
-foul the duct.
+**Two sizing modes.** The air conditioning / ventilation system sizes to a
+constant friction rate; velocity is only ever checked afterwards, so standard
+duct sizes snap *up* — always safe, since a bigger duct only ever lowers both
+the friction rate and the velocity further from their limits.
+Kitchen grease extract sizes to a velocity that's a **minimum**, not a ceiling,
+so the same snap-up rule would be wrong: rounding up to the next standard size
+lowers the velocity, which is exactly the direction that lets grease settle out
+and foul the duct.
 Standard sizes snap *down* instead (`snapDown`/`snapFloor` in engine.js),
 landing on the largest standard size that still meets the minimum, while a
 second bound (the diameter at the *maximum* velocity) stops it snapping down
@@ -213,16 +248,26 @@ as 260 m of extra duct.
 
 ### Reference data
 
-Friction-mode velocity limits follow CIBSE Guide B3 / ASHRAE recommended
-maxima for noise-sensitive design, and they are the app's only noise control;
-velocity-mode (Kitchen Extract) minimum
-transport velocities are indicative defaults pending confirmation against
-DW/172 for the specific kitchen and canopy design. Roughness values follow
-the ASHRAE Fundamentals duct roughness table, and loss coefficients are
-typical published values.
-They are sensible defaults for a first pass, not a project specification —
-check them against the job's spec before issuing anything, and use Settings
-to fine-tune any of them per space type and duct role.
+The acoustic maxima are the app's only noise control. The backbone is CIBSE
+Guide B Table 3.4, which caps velocity in risers and above ceilings at
+5 / 7.5 / 10 m/s for acoustically critical / normal / non-critical rooms; the NR
+bands interpolate across that range. CIBSE Guide B2 Table 2.16 gives a general
+office 6.0 m/s in the branch, 3.5 in the run-out and 2.5 at the diffuser.
+ASHRAE's acoustic table is more permissive and splits by shape — above a
+suspended acoustic ceiling, RC 35 allows 8.9 m/s rectangular against 15.2 round,
+because rectangular walls radiate breakout noise. This app uses one figure for
+both shapes.
+
+**Every CIBSE and ASHRAE number here reached this app through a secondary
+source** — the originals are paywalled. Check them against the project
+specification before issuing anything.
+
+The kitchen grease transport minimums are DW/172-style indicative defaults,
+pending confirmation against the specific kitchen and canopy design. Roughness
+values follow the ASHRAE Fundamentals duct roughness table, and loss
+coefficients are typical published values.
+They are sensible defaults for a first pass, not a project specification — use
+Settings to fine-tune any of them per space and duct role.
 
 ---
 

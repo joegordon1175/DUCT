@@ -332,6 +332,9 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-faint);
 }
 .vel-matrix-head span:not(:first-child) { text-align: center; }
+/* Single-value matrices (one limit per role, not a recommended/max pair). */
+.vel-matrix:has(.vel-row.two) .vel-matrix-head,
+.vel-row.two { grid-template-columns: 110px 1fr; }
 .vel-row { padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .vel-row:last-child { border-bottom: 0; }
 .vel-role { font-size: 12.5px; font-weight: 650; }

@@ -299,3 +299,86 @@ leaving a reader to wonder where the dBA figure went.
 - `combineLevels`' threshold is moot now the noise model is gone.
 - `node --test test/` still fails on Node 22 (it treats the bare directory as a
   test file). Use `npm test`, which globs `test/*.test.mjs`.
+
+---
+
+## 6. Follow-up: the velocity limits themselves
+
+The review above checked that the arithmetic was right. It did not ask whether
+the *limits* were right. They were not — they were over-conservative, and worse,
+they were attached to the wrong thing.
+
+### The limits were driving almost every selection
+
+At a constant friction target, velocity rises naturally with duty: 1.0 Pa/m
+gives 2.6 m/s at 25 l/s, 3.7 at 100, 6.2 at 800, 8.5 at 3,000 and 10.1 at 6,000.
+So a velocity cap only matters above the duty where it crosses that curve. Here
+is where each old limit took over and enlarged the duct beyond what the friction
+target asked for:
+
+| Old limit | recommended bites above | hard max bites above |
+|---|---|---|
+| Residential main 4.0 / 5.0 | 201 l/s | 491 l/s |
+| Residential branch 3.0 / 3.5 | 65 l/s | 118 l/s |
+| Residential runout 2.0 / 2.5 | 14 l/s | 32 l/s |
+| Commercial main 6.0 / 8.0 | 711 l/s | 2,302 l/s |
+| Commercial branch 4.5 / 6.0 | 223 l/s | 711 l/s |
+| Commercial runout 3.0 / 4.0 | 45 l/s | 140 l/s |
+
+A 200 l/s runout to a diffuser is routine, so the app was oversizing nearly
+every commercial runout. The friction target was nominally "the main driver" and
+in practice was overridden almost everywhere.
+
+### The limits were attached to the building, not the space
+
+"Residential / Commercial / Kitchen Extract" was one setting doing two jobs, and
+the building half was the wrong axis. Noise is the only thing setting the upper
+band, and a noise requirement belongs to the space: a hotel bedroom and a house
+bedroom want the same number, an open-plan office and a classroom want the same,
+a riser is a riser in both. The building label put a boardroom and a car park in
+the same bucket, and it is what produced the awkward cases that kept surfacing —
+residential cooker hoods, commercial-versus-residential kitchens.
+
+### What replaced it
+
+Two settings, one per cause:
+
+- **Space served → maximum velocity.** Six acoustic bands, NR 25 to NR 45+, one
+  figure per duct role. Amber within 10 % of it, derived from that single limit
+  rather than asked for as a second number.
+- **System → sizing method.** Only two, because comfort A/C, fresh air, general
+  and toilet extract all size identically to the friction target. Kitchen grease
+  extract is the exception, and carries the minimum transport velocity.
+- **Friction target → one project-wide value**, 1.0 Pa/m, replacing the per-space
+  map. With noise handled by the velocity cap there is no reason for it to vary
+  by room.
+- **No minimum velocity on the friction system.** Constant friction already picks
+  the smallest duct that holds the target, so the target is the anti-oversize
+  control; a separate floor would be a second constraint saying the same thing.
+
+The split buys something the old model could not express: a grease duct's
+minimum comes from transport physics and its maximum from wherever it runs, so
+the same duct gets 12 m/s of headroom in a riser and 9 m/s where it crosses a
+restaurant. Choose a space whose maximum sits below the transport minimum and
+the app names the two settings that are fighting instead of quietly picking one.
+
+### Where the new limits bite
+
+At 1.0 Pa/m: an NR 35 main stays friction-driven to 1,766 l/s, NR 40 to 3,743,
+NR 45+ to 12,408. The friction target is now the driver across the normal range,
+which was the point.
+
+### Provenance, stated plainly
+
+The backbone is CIBSE Guide B Table 3.4 (5 / 7.5 / 10 m/s for acoustically
+critical / normal / non-critical rooms), with CIBSE Guide B2 Table 2.16 and
+ASHRAE's acoustic table as cross-checks. **Every one of those numbers reached
+this app through a secondary source** — the originals are paywalled, and two of
+the hosts were outside the session's network allowlist. They are starting points
+to be checked against a project specification, not authority. All are editable
+in Settings.
+
+One thing not taken up: ASHRAE allows round duct roughly 1.7x the rectangular
+velocity for the same RC (8.9 vs 15.2 m/s at RC 35), because rectangular walls
+radiate breakout noise. The app knows the shape and could apply that, but uses
+one figure for both until asked.

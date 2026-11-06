@@ -43,8 +43,15 @@
     <h2 class="card-title">Design basis</h2>
 
     <div class="field">
-      <label class="label" for="space-group">Space type</label>
-      <div id="space-group" class="segmented" role="radiogroup" aria-label="Space type"></div>
+      <label class="label" for="space-select">Space served</label>
+      <select id="space-select" aria-label="Space served"></select>
+      <p class="hint">Sets the maximum velocity. Noise is the only thing driving the upper
+      limit, and the noise requirement belongs to the space, not the building.</p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="system-group">System</label>
+      <div id="system-group" class="segmented" role="radiogroup" aria-label="System type"></div>
       <p class="hint" id="space-hint"></p>
     </div>
 
@@ -190,16 +197,12 @@
   </div>
   <div class="sheet-body">
     <h3 class="sub-title">Sizing targets</h3>
-    <p class="hint">Sizing method is fixed per space type — set on the main page by choosing
-    Residential/Commercial (constant friction) or Kitchen Extract (constant velocity, for
-    commercial kitchen grease extract). Choose a space type below to fine-tune its targets.</p>
+    <p class="hint">One project-wide friction target drives duct size. With noise handled by
+    the velocity maximum below, there is no reason for it to vary by room — and no minimum
+    velocity on an air conditioning or ventilation system, because constant friction already
+    picks the smallest duct that holds the target.</p>
 
     <div class="field">
-      <div id="settings-space-group" class="segmented segmented-sm" role="radiogroup" aria-label="Space type being edited"></div>
-      <p class="hint" id="settings-method-hint"></p>
-    </div>
-
-    <div class="field" id="settings-friction-field">
       <label class="label" for="settings-target-friction">Target friction</label>
       <div class="input-unit">
         <input id="settings-target-friction" type="number" inputmode="decimal" step="0.1" min="0.1" max="20">
@@ -208,10 +211,23 @@
     </div>
 
     <div class="field-label-row">
-      <span class="label">Velocity by duct role</span>
-      <button class="text-btn" type="button" id="settings-reset-targets">Reset</button>
+      <span class="label">Maximum velocity by space</span>
+      <button class="text-btn" type="button" id="settings-reset-targets">Reset all</button>
+    </div>
+    <div class="field">
+      <div id="settings-space-group" class="segmented segmented-sm" role="radiogroup" aria-label="Space type being edited"></div>
+      <p class="hint" id="settings-space-hint"></p>
     </div>
     <div class="vel-matrix" id="settings-velocity-matrix"></div>
+
+    <div class="field-label-row">
+      <span class="label">Grease transport minimum</span>
+    </div>
+    <p class="hint">Kitchen grease extract only, and the one place a minimum velocity is a
+    physical requirement rather than an economic one. The maximum still comes from whichever
+    space the duct runs through, so the same grease duct gets more headroom in a riser than
+    where it crosses a restaurant.</p>
+    <div class="vel-matrix" id="settings-min-matrix"></div>
 
     <h3 class="sub-title">Air conditions</h3>
     <div class="row">

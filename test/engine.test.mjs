@@ -24,7 +24,15 @@ import {
   STANDARD_AIR,
 } from '../js/engine.js';
 
-import { ROUND_SIZES, RECT_SIZES, velocityLimits } from '../js/data.js';
+import {
+  ROUND_SIZES,
+  RECT_SIZES,
+  SPACE_TYPES,
+  SYSTEM_TYPES,
+  maxVelocity,
+  minVelocity,
+  systemType,
+} from '../js/data.js';
 
 const close = (actual, expected, tol, msg) =>
   assert.ok(
@@ -691,10 +699,59 @@ test('empty run is safe', () => {
  * Design data sanity
  * ---------------------------------------------------------------- */
 
-test('velocity limits tighten from industrial to residential', () => {
-  assert.ok(velocityLimits('residential', 'main').max < velocityLimits('commercial', 'main').max);
-  assert.ok(velocityLimits('commercial', 'main').max < velocityLimits('industrial', 'main').max);
-  assert.ok(velocityLimits('commercial', 'runout').max < velocityLimits('commercial', 'main').max);
+test('the acoustic maxima loosen monotonically as the space gets less critical', () => {
+  // The space list is ordered from the tightest acoustic case (bedroom) to the
+  // least critical (riser/plant). If that order ever stops being monotonic the
+  // list has been edited into something that no longer reads as a scale.
+  for (const role of ['main', 'branch', 'runout']) {
+    for (let i = 1; i < SPACE_TYPES.length; i++) {
+      const prev = maxVelocity(SPACE_TYPES[i - 1].id, role);
+      const here = maxVelocity(SPACE_TYPES[i].id, role);
+      assert.ok(
+        here >= prev,
+        `${role}: ${SPACE_TYPES[i].id} (${here}) must not be tighter than ${SPACE_TYPES[i - 1].id} (${prev})`
+      );
+    }
+  }
+});
+
+test('within a space, a main is allowed to run faster than a runout', () => {
+  for (const space of SPACE_TYPES) {
+    assert.ok(
+      maxVelocity(space.id, 'main') > maxVelocity(space.id, 'branch'),
+      `${space.id}: main > branch`
+    );
+    assert.ok(
+      maxVelocity(space.id, 'branch') > maxVelocity(space.id, 'runout'),
+      `${space.id}: branch > runout`
+    );
+  }
+});
+
+test('only kitchen grease extract carries a minimum velocity', () => {
+  // Constant friction already picks the smallest duct that holds the target, so
+  // a friction system needs no floor — a second constraint saying the same
+  // thing. Grease transport is the one case where the minimum is physical.
+  for (const system of SYSTEM_TYPES) {
+    const hasMin = system.id === 'kitchen';
+    for (const role of ['main', 'branch', 'runout']) {
+      assert.equal(
+        minVelocity(system.id, role) > 0,
+        hasMin,
+        `${system.id} ${role}`
+      );
+    }
+  }
+  assert.equal(systemType('standard').sizingMethod, 'friction');
+  assert.equal(systemType('kitchen').sizingMethod, 'velocity');
+  assert.equal(systemType('kitchen').allowsFlexible, false, 'no flex on grease extract');
+});
+
+test('the grease minimum falls from main to runout', () => {
+  // The main/riser is the longest, least accessible part of the run and the
+  // hardest to clean, so it carries the highest minimum.
+  assert.ok(minVelocity('kitchen', 'main') >= minVelocity('kitchen', 'branch'));
+  assert.ok(minVelocity('kitchen', 'branch') >= minVelocity('kitchen', 'runout'));
 });
 
 test('standard size lists are sorted ascending', () => {
