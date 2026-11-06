@@ -57,6 +57,14 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Open-plan office | NR 38 | 8.5 | 7.0 | 4.5 |
 | Retail / restaurant / circulation | NR 40 | 9.0 | 7.5 | 5.0 |
 | Toilet / back-of-house / riser / plant | NR 45+ | 12.0 | 9.0 | 6.0 |
+| Commercial kitchen | NR 45+ | 12.0 | 8.0 | 8.0 |
+
+Commercial kitchen sits outside that scale deliberately. The duct runs in a space
+where the canopy fans and the appliances already dominate, so the duct isn't what
+anyone hears — and its runout doesn't follow the "half the main" rule the others
+use, because that rule is about a runout feeding a terminal in an occupied room.
+A grease duct leaving the kitchen needs its own acoustic assessment whatever this
+app says, so there's no attempt to model that.
 
 One number per role, not a recommended/maximum pair: there is a single acoustic
 limit, and the app shades the reading amber within 10 % of it rather than asking
@@ -69,7 +77,22 @@ so they are one system rather than three identical ones.
 | System | Sizing method | Why |
 |---|---|---|
 | Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
-| Kitchen grease extract | Constant velocity, as a **minimum** (m/s) | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+| Kitchen grease extract | Constant velocity, as a **minimum** (m/s), under a Pa/m ceiling | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+
+**The grease friction ceiling** (6.0 Pa/m by default) is the small-duct guard.
+Sizing to a minimum velocity puts no lower bound on duct size, so a small duty
+would otherwise be met with something tiny and screaming — 200 l/s on a main
+lands at Ø150, 11.3 m/s and 10.5 Pa/m. The ceiling sets a minimum diameter, and
+where it bites the duct goes up a size and the velocity falls below the transport
+minimum, which is flagged. That trade between fan energy and keeping grease
+entrained is yours, not the app's.
+
+It's set against *actual* selections, not the rate at the minimum velocity: floor
+sizing snaps down, so it lands at the fast end of the band and runs hotter than
+the at-minimum figure suggests. 6.0 moves exactly the pathological duty and
+leaves normal ones alone; 3.0 looks reasonable on paper and isn't — it narrows
+the band below one standard size step, so most duties then satisfy neither
+bound.
 
 The useful consequence of splitting them: a grease duct's **minimum** comes from
 transport physics and its **maximum** from wherever it runs, so the same duct
@@ -89,7 +112,7 @@ would be a second constraint saying the same thing.
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
 | Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
-| Duct type | Circular, rectangular or flexible. Flexible isn't offered on kitchen grease extract — it's not normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
+| Duct type | Circular, rectangular or flexible. Flexible is locked to the runout role — it's what flexible duct is, and a flexible "main" would otherwise be checked against the main's limit. It isn't offered on kitchen grease extract at all, not being normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
@@ -99,9 +122,9 @@ would be a second constraint saying the same thing.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
-duct role — main, branch, runout, and a separate entry for flexible duct — for
-each of the six spaces, editable independently of which space is active on the
-main page; the grease transport minimums by role; air temperature and altitude (drives density and viscosity),
+duct role — main, branch and runout — for each of the seven spaces, editable
+independently of which space is active on the main page; the grease transport
+minimums by role and the grease friction ceiling; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum

@@ -31,8 +31,15 @@ import {
   SYSTEM_TYPES,
   maxVelocity,
   minVelocity,
+  maxFriction,
   systemType,
+  spaceType,
 } from '../js/data.js';
+
+/* The acoustic scale runs from the tightest room to the least critical.
+   Commercial kitchen sits outside it deliberately — it is a special case, not a
+   rung on the ladder — so the ordering checks below exclude it. */
+const ACOUSTIC_SCALE = SPACE_TYPES.filter((s) => s.id !== 'kitchen');
 
 const close = (actual, expected, tol, msg) =>
   assert.ok(
@@ -704,12 +711,12 @@ test('the acoustic maxima loosen monotonically as the space gets less critical',
   // least critical (riser/plant). If that order ever stops being monotonic the
   // list has been edited into something that no longer reads as a scale.
   for (const role of ['main', 'branch', 'runout']) {
-    for (let i = 1; i < SPACE_TYPES.length; i++) {
-      const prev = maxVelocity(SPACE_TYPES[i - 1].id, role);
-      const here = maxVelocity(SPACE_TYPES[i].id, role);
+    for (let i = 1; i < ACOUSTIC_SCALE.length; i++) {
+      const prev = maxVelocity(ACOUSTIC_SCALE[i - 1].id, role);
+      const here = maxVelocity(ACOUSTIC_SCALE[i].id, role);
       assert.ok(
         here >= prev,
-        `${role}: ${SPACE_TYPES[i].id} (${here}) must not be tighter than ${SPACE_TYPES[i - 1].id} (${prev})`
+        `${role}: ${ACOUSTIC_SCALE[i].id} (${here}) must not be tighter than ${ACOUSTIC_SCALE[i - 1].id} (${prev})`
       );
     }
   }
@@ -722,9 +729,25 @@ test('within a space, a main is allowed to run faster than a runout', () => {
       `${space.id}: main > branch`
     );
     assert.ok(
-      maxVelocity(space.id, 'branch') > maxVelocity(space.id, 'runout'),
-      `${space.id}: branch > runout`
+      maxVelocity(space.id, 'branch') >= maxVelocity(space.id, 'runout'),
+      `${space.id}: branch >= runout`
     );
+  }
+  // The kitchen's runout does NOT follow the "half the main" rule the acoustic
+  // spaces use. That rule is about a runout feeding a terminal in an occupied
+  // room; a grease duct off a canopy is not that, and deriving it that way made
+  // the grease runout band impossible in every space.
+  assert.equal(maxVelocity('kitchen', 'runout'), maxVelocity('kitchen', 'branch'));
+});
+
+test('every grease band is workable in the commercial kitchen', () => {
+  // The regression this guards: with the kitchen max taken from an acoustic
+  // space, the runout band came out impossible (max below min) in five spaces
+  // and zero-width in the sixth, so no runout could ever satisfy the rule.
+  for (const role of ['main', 'branch', 'runout']) {
+    const min = minVelocity('grease', role);
+    const max = maxVelocity('kitchen', role);
+    assert.ok(max > min, `${role}: kitchen max ${max} must leave room above the ${min} minimum`);
   }
 });
 
@@ -733,7 +756,7 @@ test('only kitchen grease extract carries a minimum velocity', () => {
   // a friction system needs no floor — a second constraint saying the same
   // thing. Grease transport is the one case where the minimum is physical.
   for (const system of SYSTEM_TYPES) {
-    const hasMin = system.id === 'kitchen';
+    const hasMin = system.id === 'grease';
     for (const role of ['main', 'branch', 'runout']) {
       assert.equal(
         minVelocity(system.id, role) > 0,
@@ -743,15 +766,78 @@ test('only kitchen grease extract carries a minimum velocity', () => {
     }
   }
   assert.equal(systemType('standard').sizingMethod, 'friction');
-  assert.equal(systemType('kitchen').sizingMethod, 'velocity');
-  assert.equal(systemType('kitchen').allowsFlexible, false, 'no flex on grease extract');
+  assert.equal(systemType('grease').sizingMethod, 'velocity');
+  assert.equal(systemType('grease').allowsFlexible, false, 'no flex on grease extract');
+  // The grease SYSTEM and the commercial-kitchen SPACE must not share an id:
+  // they are different lookups and a typo between them would read silently.
+  assert.ok(SYSTEM_TYPES.every((x) => x.id !== 'kitchen'));
+  assert.equal(spaceType('kitchen').id, 'kitchen');
+});
+
+test('no space carries a flexible-duct velocity entry any more', () => {
+  // They were inert: flexible duct's roughness makes the friction target bind
+  // long before any velocity limit does. Flexible is locked to the runout role.
+  for (const space of SPACE_TYPES) {
+    assert.equal(space.roles.flex, undefined, `${space.id} still has a flex entry`);
+  }
+  assert.equal(systemType('grease').minVelocity.flex, undefined);
+});
+
+test('the friction ceiling stops a small duty becoming a screaming duct', () => {
+  // Floor sizing puts no lower bound on duct size, so a small duty is met with
+  // a tiny, screaming duct — 80 l/s here lands at Ø100, 10.2 m/s and 14.3 Pa/m.
+  // (On the shipped 50 mm list the same pathology shows at 200 l/s: Ø150,
+  // 11.3 m/s and 10.5 Pa/m. Which duty bites depends on the size list, which is
+  // why this uses the test list's own.)
+  const base = {
+    air: STANDARD_AIR,
+    roughness: 0.00009,
+    method: 'velocity',
+    targetVelocity: 7.5,
+    maxVelocity: 12,
+    roundSizes: TEST_ROUND,
+    rectSizes: TEST_RECT,
+    useStandardSizes: true,
+  };
+  const seg = { airflowLps: 80, shape: 'circular', lengthM: 10 };
+  const loose = calcSegment(seg, { ...base, maxFriction: 0 });
+  const capped = calcSegment(seg, { ...base, maxFriction: 6 });
+
+  assert.ok(loose.frictionRate > 6, `uncapped is ${loose.frictionRate.toFixed(1)} Pa/m`);
+  assert.ok(capped.heightMm > loose.heightMm, 'the ceiling makes the duct bigger');
+  assert.ok(capped.frictionRate <= 6 * 1.001, `capped is ${capped.frictionRate.toFixed(2)} Pa/m`);
+  assert.equal(capped.velocityCapSource, 'friction', 'and says which limit bound it');
+  assert.ok(capped.maxVelocityApplied < base.maxVelocity, 'effective cap is below the acoustic one');
+  // The trade is real and must be visible: the bigger duct runs slower than the
+  // transport minimum, which is exactly the thing not to resolve silently.
+  assert.ok(capped.velocity < base.targetVelocity);
+  assert.equal(capped.belowMinVelocity, true);
+});
+
+test('the friction ceiling leaves a duty it does not bind on alone', () => {
+  const base = {
+    air: STANDARD_AIR,
+    roughness: 0.00009,
+    method: 'velocity',
+    targetVelocity: 7.5,
+    maxVelocity: 12,
+    roundSizes: TEST_ROUND,
+    rectSizes: TEST_RECT,
+    useStandardSizes: true,
+  };
+  const seg = { airflowLps: 2500, shape: 'circular', lengthM: 10 };
+  const loose = calcSegment(seg, { ...base, maxFriction: 0 });
+  const capped = calcSegment(seg, { ...base, maxFriction: maxFriction('grease') });
+  assert.equal(capped.heightMm, loose.heightMm, 'same size');
+  assert.equal(capped.velocityCapSource, 'noise', 'the acoustic limit is what binds here');
+  assert.equal(capped.ruleMet, true);
 });
 
 test('the grease minimum falls from main to runout', () => {
   // The main/riser is the longest, least accessible part of the run and the
   // hardest to clean, so it carries the highest minimum.
-  assert.ok(minVelocity('kitchen', 'main') >= minVelocity('kitchen', 'branch'));
-  assert.ok(minVelocity('kitchen', 'branch') >= minVelocity('kitchen', 'runout'));
+  assert.ok(minVelocity('grease', 'main') >= minVelocity('grease', 'branch'));
+  assert.ok(minVelocity('grease', 'branch') >= minVelocity('grease', 'runout'));
 });
 
 test('standard size lists are sorted ascending', () => {

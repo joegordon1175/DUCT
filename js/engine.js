@@ -458,6 +458,11 @@ export function pressureClassDependsOnSign(staticPa, velocity) {
  *   @param {number} ctx.targetFriction  Pa/m, used when method is 'friction'
  *   @param {number} ctx.targetVelocity  m/s, used when method is 'velocity'
  *   @param {number} ctx.maxVelocity     m/s, hard cap for sizing in both modes
+ *   @param {number} [ctx.maxFriction]   Pa/m ceiling, 'velocity' mode only —
+ *     the small-duct guard. Sizing to a minimum velocity puts no lower bound on
+ *     duct size, so a small duty picks something tiny and screaming. A friction
+ *     ceiling sets a minimum diameter, which for a given flow is just an upper
+ *     bound on velocity, so it is folded into the effective maximum below.
  *   @param {number[]} ctx.roundSizes, ctx.rectSizes   mm
  *   @param {boolean} ctx.useStandardSizes
  *   @param {number} ctx.preferredAspect, ctx.maxAspect, ctx.maxHeightMm
@@ -488,13 +493,31 @@ export function calcSegment(seg, ctx) {
     ? 0
     : diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
   const dTargetVel = floorSizing ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
-  const dMaxVel = diameterForVelocity(flow, ctx.maxVelocity);
+
+  // A Pa/m ceiling is a minimum diameter, and at a fixed flow a minimum
+  // diameter is a maximum velocity — so convert it and take whichever cap binds
+  // first. Doing it here means the whole of the sizing below, round and
+  // rectangular alike, needs no further knowledge of it.
+  const frictionCeiling = floorSizing ? Math.max(ctx.maxFriction ?? 0, 0) : 0;
+  const dFrictionCap =
+    frictionCeiling > 0 ? diameterForFriction(flow, frictionCeiling, roughness, air) : 0;
+  const velocityAtFrictionCap =
+    dFrictionCap > 0 ? flow / ((Math.PI * dFrictionCap * dFrictionCap) / 4) : Infinity;
+  const maxVelocity =
+    ctx.maxVelocity > 0 ? Math.min(ctx.maxVelocity, velocityAtFrictionCap) : velocityAtFrictionCap;
+  // Which constraint actually set the ceiling, for the UI to name.
+  const capSource =
+    Number.isFinite(velocityAtFrictionCap) && velocityAtFrictionCap < (ctx.maxVelocity ?? Infinity)
+      ? 'friction'
+      : 'noise';
+
+  const dMaxVel = diameterForVelocity(flow, maxVelocity);
   // In floor mode dTargetVel (diameter at the slower, minimum velocity) is the
   // larger of the two and so already wins this max() — requiredD lands on the
   // loose end of the valid [dMaxVel, dTargetVel] diameter range, exactly the
   // ceiling that snapFloor below must not snap past.
   const requiredD = Math.max(dFriction, dTargetVel, dMaxVel); // m
-  const minArea = ctx.maxVelocity > 0 ? flow / ctx.maxVelocity : 0; // m²
+  const minArea = maxVelocity > 0 ? flow / maxVelocity : 0; // m²
   // Floor mode constrains AREA, not equivalent diameter — velocity is Q/A, so
   // the minimum velocity is a maximum area. Rectangular sizing must use this
   // rather than requiredD, which (being an equal-friction diameter) maps to a
@@ -600,11 +623,12 @@ export function calcSegment(seg, ctx) {
   // missing the target — the fix is to add sizes to the list, which only the
   // user can decide.
   const tol = 1.001;
-  const overMax = ctx.maxVelocity > 0 && hyd.velocity > ctx.maxVelocity * tol;
+  const overMax = maxVelocity > 0 && hyd.velocity > maxVelocity * tol;
   const underMin =
     floorSizing && ctx.targetVelocity > 0 && hyd.velocity < ctx.targetVelocity / tol;
-  const overFriction =
-    !floorSizing && ctx.targetFriction > 0 && frictionRate > ctx.targetFriction * tol;
+  const overFriction = floorSizing
+    ? frictionCeiling > 0 && frictionRate > frictionCeiling * tol
+    : ctx.targetFriction > 0 && frictionRate > ctx.targetFriction * tol;
   const ruleMet = !(overMax || underMin || overFriction);
 
   // --- geometry extras ---------------------------------------------------
@@ -645,6 +669,11 @@ export function calcSegment(seg, ctx) {
     fittings,
     ruleMet,
     sizeLimited: !ruleMet && sizedBy === 'calculated',
+    maxVelocityApplied: Number.isFinite(maxVelocity) ? maxVelocity : 0,
+    // 'friction' when the Pa/m ceiling bound the duct before the acoustic
+    // limit did — the UI names the right one rather than blaming noise.
+    velocityCapSource: capSource,
+    frictionCeiling,
     exceedsMaxVelocity: overMax,
     belowMinVelocity: underMin,
     exceedsFrictionTarget: overFriction,

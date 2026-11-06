@@ -135,7 +135,7 @@ export const SPACE_TYPES = [
     short: 'Bedroom',
     useCase: 'Sleeping spaces — the tightest acoustic case',
     nr: 'NR 25',
-    roles: { main: 5.0, branch: 4.0, runout: 2.5, flex: 2.5 },
+    roles: { main: 5.0, branch: 4.0, runout: 2.5 },
   },
   {
     id: 'living',
@@ -143,7 +143,7 @@ export const SPACE_TYPES = [
     short: 'Living',
     useCase: 'Living rooms, studies, consulting rooms',
     nr: 'NR 30',
-    roles: { main: 6.0, branch: 5.0, runout: 3.0, flex: 3.0 },
+    roles: { main: 6.0, branch: 5.0, runout: 3.0 },
   },
   {
     id: 'office',
@@ -151,7 +151,7 @@ export const SPACE_TYPES = [
     short: 'Office',
     useCase: 'Cellular offices, meeting rooms, teaching spaces',
     nr: 'NR 35',
-    roles: { main: 7.5, branch: 6.0, runout: 4.0, flex: 4.0 },
+    roles: { main: 7.5, branch: 6.0, runout: 4.0 },
   },
   {
     id: 'openplan',
@@ -159,7 +159,7 @@ export const SPACE_TYPES = [
     short: 'Open plan',
     useCase: 'Open-plan workspace, where background level is higher',
     nr: 'NR 38',
-    roles: { main: 8.5, branch: 7.0, runout: 4.5, flex: 4.5 },
+    roles: { main: 8.5, branch: 7.0, runout: 4.5 },
   },
   {
     id: 'retail',
@@ -167,7 +167,7 @@ export const SPACE_TYPES = [
     short: 'Retail',
     useCase: 'Shops, restaurants, lobbies and corridors',
     nr: 'NR 40',
-    roles: { main: 9.0, branch: 7.5, runout: 5.0, flex: 5.0 },
+    roles: { main: 9.0, branch: 7.5, runout: 5.0 },
   },
   {
     id: 'backhouse',
@@ -175,7 +175,26 @@ export const SPACE_TYPES = [
     short: 'Back of house',
     useCase: 'Risers, plant, stores, WCs — acoustically non-critical',
     nr: 'NR 45+',
-    roles: { main: 12.0, branch: 9.0, runout: 6.0, flex: 6.0 },
+    roles: { main: 12.0, branch: 9.0, runout: 6.0 },
+  },
+  {
+    // Deliberately NOT part of the acoustic scale above, which runs from the
+    // tightest room to the least critical. A commercial kitchen is its own
+    // case: the duct runs in a space where the canopy fans and the appliances
+    // already dominate, so the duct is not what anyone hears. The runout figure
+    // in particular does not follow the "half the main" rule the other spaces
+    // use — that rule is about a runout feeding a terminal in an occupied room,
+    // and a grease duct off a canopy is not that. Deriving it that way made the
+    // runout band impossible in every space, which is what sent this here.
+    //
+    // A grease duct leaving the kitchen needs its own acoustic assessment
+    // whatever this app says, so there is no attempt to model that case.
+    id: 'kitchen',
+    name: 'Commercial kitchen',
+    short: 'Kitchen',
+    useCase: 'Inside the kitchen — canopy fans and appliances dominate',
+    nr: 'NR 45+',
+    roles: { main: 12.0, branch: 8.0, runout: 8.0 },
   },
 ];
 
@@ -193,7 +212,9 @@ export const SYSTEM_TYPES = [
     allowsFlexible: true,
   },
   {
-    id: 'kitchen',
+    // id is 'grease', not 'kitchen', so it can never be confused with the
+    // Commercial kitchen SPACE of that name — they are different lookups.
+    id: 'grease',
     name: 'Kitchen grease extract',
     short: 'Kitchen',
     useCase: 'Commercial kitchen canopies & grease ducts',
@@ -215,7 +236,32 @@ export const SYSTEM_TYPES = [
      * the point of splitting the two: the same grease duct gets 12 m/s of
      * headroom in a riser and 9 m/s where it crosses a restaurant.
      */
-    minVelocity: { main: 7.5, branch: 6.0, runout: 6.0, flex: 6.0 },
+    minVelocity: { main: 7.5, branch: 6.0, runout: 6.0 },
+    /**
+     * Friction CEILING, Pa/m — the small-duct guard.
+     *
+     * Sizing to a minimum velocity puts no lower bound on duct size, so at small
+     * duties it will happily pick something tiny and screaming: holding 7.5 m/s
+     * at 100 l/s costs 5.8 Pa/m, and at 50 l/s, 8.9 Pa/m. This caps that. It
+     * sets a minimum diameter, so it acts as an upper bound on velocity, and
+     * where it bites the duct goes UP a size and the velocity falls below the
+     * transport minimum — which is then flagged, because that is a real
+     * trade-off between fan energy and keeping grease entrained, not something
+     * to resolve silently.
+     *
+     * 6.0 Pa/m was picked against ACTUAL selections, not against the rate at the
+     * minimum velocity — floor sizing snaps DOWN, so it deliberately lands at
+     * the fast end of the band and runs hotter than the at-minimum figure
+     * suggests. At 6.0 it moves exactly the pathological duty (200 l/s on a
+     * main: Ø150 at 11.3 m/s and 10.5 Pa/m becomes Ø200 at 6.4 m/s and
+     * 2.5 Pa/m) and leaves every normal duty alone. Tightening it to 3.0 looks
+     * reasonable on paper and is not: it narrows the band below one standard
+     * size step, so most duties then satisfy neither bound.
+     *
+     * Raise it to protect the transport velocity further down; lower it to keep
+     * small ducts quieter and cheaper to run.
+     */
+    maxFriction: 6.0,
   },
 ];
 
@@ -252,17 +298,22 @@ export function shapesForSystem(systemId) {
   return systemAllowsFlexible(systemId) ? SHAPES : SHAPES.filter((s) => s.id !== 'flexible');
 }
 
-/** Role key for a lookup — flexible duct has its own entry whatever its role. */
-function roleKey(roleId, shape) {
-  return shape === 'flexible' ? 'flex' : roleId;
-}
+/**
+ * Flexible duct used to carry its own velocity entry per space. It has been
+ * dropped: those figures were inert, because flexible duct's roughness makes the
+ * friction target bind long before any velocity limit does — at 120 l/s a
+ * bedroom (2.5 m/s), an office (4.0) and a retail space (5.0) all produced the
+ * same Ø250 at 2.44 m/s. What actually matters for flexible duct is its pressure
+ * drop, and that is already modelled by roughness and the compression factor.
+ * Flexible duct is locked to the runout role, so it reads that space's limit.
+ */
 
 /**
  * Maximum velocity for a space + duct role, m/s. Set by noise alone.
  */
-export function maxVelocity(spaceId, roleId, shape) {
+export function maxVelocity(spaceId, roleId) {
   const space = spaceType(spaceId);
-  return space.roles[roleKey(roleId, shape)] ?? space.roles.branch;
+  return space.roles[roleId] ?? space.roles.branch;
 }
 
 /**
@@ -270,10 +321,15 @@ export function maxVelocity(spaceId, roleId, shape) {
  * Only kitchen grease extract has one; the friction target is what stops a
  * friction-sized duct being oversized.
  */
-export function minVelocity(systemId, roleId, shape) {
+export function minVelocity(systemId, roleId) {
   const system = systemType(systemId);
   if (!system.minVelocity) return 0;
-  return system.minVelocity[roleKey(roleId, shape)] ?? system.minVelocity.branch;
+  return system.minVelocity[roleId] ?? system.minVelocity.branch;
+}
+
+/** Friction ceiling for a system, Pa/m, or 0 where it has none. */
+export function maxFriction(systemId) {
+  return systemType(systemId).maxFriction ?? 0;
 }
 
 export function material(id) {

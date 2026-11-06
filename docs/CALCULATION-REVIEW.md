@@ -480,3 +480,96 @@ independently and lands on it:
 | Open plan | 8.5 | 7.0 (82 %) | 4.5 (53 %) |
 | Retail | 9.0 | 7.5 (83 %) | 5.0 (56 %) |
 | Back of house | 12.0 | 9.0 (75 %) | 6.0 (50 %) |
+
+---
+
+## 8. Follow-up: kitchen as its own space, and the small-duct guard
+
+### The grease runout band was impossible everywhere
+
+§6 split the velocity limits so the space sets the maximum and the system sets
+the minimum. A sanity check of kitchen mode found that the grease **runout** band
+was unusable in every single space:
+
+| Space | Runout min | Runout max | |
+|---|---|---|---|
+| Bedroom / Living / Office / Open plan / Retail | 6.0 | 2.5–5.0 | max below min — impossible |
+| Back of house | 6.0 | 6.0 | zero width — only an exact 6.00 m/s hit passes |
+
+The cause was a category error introduced by the split. Each space's runout
+maximum was derived as ~50 % of its main, following ASHRAE's rule — but that rule
+is about **runouts feeding a terminal in an occupied room**. A grease duct off a
+canopy is not that, so the figure never applied to it.
+
+**Fix: a commercial kitchen is its own space** (main 12.0, branch 8.0, runout
+8.0, NR 45+). The duct runs where canopy fans and appliances dominate, so the
+duct is not what anyone hears, and the runout is not tied to the half-the-main
+rule. A grease duct leaving the kitchen needs its own acoustic assessment
+whatever this app says, so no attempt is made to model that case. The space sits
+outside the acoustic scale deliberately, and the ordering tests exclude it.
+
+### Floor sizing had no lower bound on duct size
+
+The same check found that velocity-floor sizing will meet a small duty with a
+tiny, screaming duct, because nothing stops it: on the shipped 50 mm list,
+200 l/s on a main lands at Ø150, **11.3 m/s and 10.5 Pa/m**. Holding 7.5 m/s at
+100 l/s costs 5.8 Pa/m and at 50 l/s, 8.9 Pa/m.
+
+**Fix: a friction ceiling on the grease system**, 6.0 Pa/m by default and
+editable. A Pa/m ceiling is a minimum diameter, and at a fixed flow a minimum
+diameter is just a maximum velocity — so it is converted to one and folded into
+the effective cap, which means the whole of the sizing below, round and
+rectangular alike, needs no further knowledge of it. Where it binds, the duct
+goes up a size and the velocity drops below the transport minimum; that is
+flagged, because the trade between fan energy and keeping grease entrained is the
+engineer's to make. `velocityCapSource` says which limit bound the duct so the UI
+names the right one rather than blaming noise.
+
+**Choosing the default taught something.** 3.0 Pa/m looked right from the rate
+*at* the minimum velocity — and is wrong. Floor sizing snaps **down**, so it
+deliberately lands at the fast end of the band and runs hotter than the
+at-minimum figure suggests. Worse, 3.0 narrows the band below one standard size
+step, so most duties then satisfy neither bound: only 5 of 12 test duties met the
+rule, against 12 of 12 uncapped.
+
+| Ceiling | Worst Pa/m | Duties meeting the rule |
+|---|---|---|
+| none | 10.51 | 12 / 12 |
+| 3.0 | 3.81 | 5 / 12 |
+| 4.0 | 6.12 | 8 / 12 |
+| 6.0 | 6.12 | 10 / 12 |
+| 8.0 | 10.51 | 11 / 12 |
+
+6.0 moves exactly the pathological duty (200 l/s: Ø150 at 11.3 m/s and 10.5 Pa/m
+becomes Ø200 at 6.4 m/s and 2.5 Pa/m) and leaves every normal duty alone.
+
+### Flexible duct: limits dropped, role locked
+
+The per-space flexible velocity entries were inert — flexible duct's roughness
+makes the friction target bind long before any velocity limit does. At 120 l/s a
+bedroom (2.5 m/s), an office (4.0) and a retail space (5.0) all produced the same
+Ø250 at 2.44 m/s. They are gone; what actually matters for flexible duct is its
+pressure drop, already modelled by roughness and the compression factor.
+
+Flexible is now locked to the **runout** role. It had to be: the role picker is
+hidden for flexible duct, so without the lock a segment kept whatever role it had
+and silently read that limit — a flexible "main" checked against the main's
+velocity. The app also no longer lets you build `role = main` + `shape =
+flexible`, a combination nobody would install.
+
+### One thing that looked like a bug and was not
+
+Velocity is not monotonic in airflow under floor sizing. It sawtooths, dropping
+back toward the minimum each time it steps up a size. A check flagged it; the
+check was wrong, not the engine.
+
+### Still outstanding
+
+AIRAH's "Maximum duct velocities and noise effects" table (Skills Workshop
+sw123) could not be read — `airah.org.au` is outside the session's network
+allowlist. A **DUCT** cloud environment now exists with the reference hosts
+allowed, for the consensus pass across CIBSE, ASHRAE and AIRAH. What did come
+through: AIRAH sizes under 180 l/s at 4.5 m/s and 180–4,500 l/s by friction at
+~1.2 Pa/m, and frames its table as absolute maxima for systems over 1,000 l/s
+rather than recommended design velocities — the same framing as the single
+maximum used here.
