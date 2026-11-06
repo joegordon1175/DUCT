@@ -188,7 +188,7 @@ would be a second constraint saying the same thing.
 | Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
 | Duct type | Circular, rectangular or flexible. Flexible is locked to the runout role — it's what flexible duct is, and a flexible "main" would otherwise be checked against the main's limit. It isn't offered on kitchen grease extract at all, not being normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
-| Installed condition | Flexible duct only: 4 % taut, 10 % average, 15 % typical (default) or 30 % poor compression. |
+| Installed condition | Flexible duct only: Typical 15 % (default, design basis) or Tight 4 % (only where specified fully extended and checked on site). |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
 | Width override | Rectangular only. Blank = solved from the height and the sizing target. |
 | Straight length | m. |
@@ -311,9 +311,9 @@ metallic 1.2 mm) times the ASHRAE Fundamentals compression correction, Eq. 22:
 `PDCF = 1 + 58·rc·e^(−0.00496·D)`, D in mm, valid 150–400 mm and held at the
 end values outside (below Ø150 the app notes the pressure drop is indicative).
 At 15 % that is ×5.1 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. LBNL-49012's
-size-specific fits agree within ~7 %. Compression options: 4 % (ACCA
-"fully extended"), 10 % (LBNL/ACEEE 2002 measured field average), 15 % (LBNL
-"normal stretch", default), 30 % (poor install). Culp's underlying data scatter
+size-specific fits agree within ~7 %. Two compression options: Typical 15 % (LBNL
+"normal stretch", default — a little conservative against the 10 % measured field
+average) and Tight 4 % (ACCA "fully extended"). Culp's underlying data scatter
 ±20–30 %; ε 0.9 mm is ASHRAE's "medium rough" category value from recall, and
 mildly conservative against measured stretched flex.
 

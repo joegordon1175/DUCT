@@ -87,27 +87,23 @@ export const DEFAULT_MATERIAL = { circular: 'galv', rectangular: 'galv', flexibl
  * longitudinal compression ratio, turned into a pressure-drop correction by the
  * diameter-dependent `flexCompressionFactor` (ASHRAE Eq. 22) in engine.js.
  *
- * Where real installations sit:
- *   4 %  — properly installed and pulled taut. ACCA treats ≤4 % as "fully
- *          extended"; Texas A&M say 4 % should be expected in the field, which
- *          reads as an aim rather than a survey finding.
- *   10 % — the MEASURED average across real residential runs (LBNL field study,
- *          ACEEE 2002).
- *   15 % — LBNL's "moderate compression typical of field installation", their
- *          "normal stretch" case. The default: realistic, and a little
- *          conservative against the 10 % average.
- *   30 % — LBNL's "extreme" case. A bad installation, not a design condition —
- *          here for checking an existing poor install.
+ * Two options, deliberately:
+ *   Typical 15 % — the default and the design basis. LBNL's "moderate
+ *          compression typical of field installation" ("normal stretch"); a
+ *          little conservative against the 10 % measured field average (LBNL,
+ *          ACEEE 2002), so a separate 10 % option added nothing.
+ *   Tight 4 % — only where flex is specified "fully extended, cut to length"
+ *          AND checked on site. ACCA treats <=4 % as fully extended.
+ * A 30 % "poor install" option was dropped: it describes a defect, not a
+ * design condition. Older saves on 10 % or 30 % load as Typical 15 %.
  *
  * The previous options were a flat x2 at 15 % and x4 at 30 % for every
  * diameter — roughly half what LBNL measured, and size-independent where the
  * measurements show small duct suffering far more.
  */
 export const FLEX_CONDITIONS = [
-  { id: 'c04', name: '4 % taut', compression: 0.04 },
-  { id: 'c10', name: '10 % avg', compression: 0.1 },
-  { id: 'c15', name: '15 % typical', compression: 0.15 },
-  { id: 'c30', name: '30 % poor', compression: 0.3 },
+  { id: 'c04', name: 'Tight 4 %', compression: 0.04 },
+  { id: 'c15', name: 'Typical 15 %', compression: 0.15 },
 ];
 
 export const DEFAULT_FLEX_CONDITION = 'c15';

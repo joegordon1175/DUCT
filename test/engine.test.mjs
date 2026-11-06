@@ -1050,8 +1050,8 @@ test('stretched non-metallic flex reproduces the research baseline (ε 0.9 mm)',
   });
 });
 
-test('flex conditions are 4/10/15/30 % with 15 % the default', () => {
-  assert.deepEqual(FLEX_CONDITIONS.map((c) => c.compression), [0.04, 0.1, 0.15, 0.3]);
+test('flex conditions are Tight 4 % and Typical 15 %, Typical the default', () => {
+  assert.deepEqual(FLEX_CONDITIONS.map((c) => c.compression), [0.04, 0.15]);
   assert.equal(DEFAULT_FLEX_CONDITION, 'c15');
   for (const d of [100, 125, 160]) assert.ok(FLEX_SIZES.includes(d), `flex list has Ø${d}`);
   assert.equal(FLEX_MAX_FRICTION, 8.0);
@@ -1072,10 +1072,8 @@ test('flexible duct sizes on velocity: compression up to 15 % does not move the 
     const sizes = FLEX_CONDITIONS.map(
       (c) => calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(c.compression)).heightMm
     );
-    // 4-15 %: velocity governs, so compression does not move the size.
-    assert.ok(sizes.slice(0, 3).every((d) => d === sizes[0]), `${flow} l/s sizes vary with compression: ${sizes}`);
-    // 30 %: the 8 Pa/m backstop may step it up, never down.
-    assert.ok(sizes[3] >= sizes[0], `${flow} l/s at 30 % must not downsize`);
+    // Velocity governs, so compression does not move the size at these flows.
+    assert.ok(sizes.every((d) => d === sizes[0]), `${flow} l/s sizes vary with compression: ${sizes}`);
     const r = calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
     assert.ok(r.velocity <= FLEX_MAX_VELOCITY + 1e-9, `${flow} l/s within 3.5 m/s`);
   }

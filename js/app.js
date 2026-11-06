@@ -1173,7 +1173,7 @@ function segmentCard(seg, index) {
         flexGroup,
         el('p', {
           class: 'hint',
-          text: 'Compression multiplies friction, worst on small sizes (ASHRAE Eq. 22): at 15 % about ×5 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. 15 % is typical of real installs; 4 % is pulled taut; 30 % is poor.',
+          text: 'Compression multiplies friction, worst on small sizes (ASHRAE Eq. 22): at 15 % about ×5 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. Design to Typical; choose Tight only where flex is specified fully extended and checked on site.',
         }),
       ])
     );

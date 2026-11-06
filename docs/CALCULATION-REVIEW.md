@@ -1153,3 +1153,12 @@ use it.
 Sources: ASHRAE Fundamentals 2009 SI Eq. 22 (reproduction); Idem et al. on
 RP-1333; LBNL-49012 (escholarship qt0d76400v); Weaver & Culp 2007 (abstract);
 AIRAH sw022.
+
+## 18. Flex compression options cut to two
+
+Typical 15 % (default) and Tight 4 %. The 10 % option sized the same as 15 % in
+practice and 15 % is the slightly conservative design basis; 30 % describes a
+defective install, not a design condition, and is dropped. Saves on 10 % or 30 %
+load as Typical 15 %; "Fully extended" saves stay on Tight 4 %. Factors are
+unchanged (ASHRAE Eq. 22, §17). The §16/§17 tables keep their 10 % and 30 %
+columns for reference.
