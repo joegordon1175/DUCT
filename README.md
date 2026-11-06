@@ -255,8 +255,16 @@ bands interpolate across that range. CIBSE Guide B2 Table 2.16 gives a general
 office 6.0 m/s in the branch, 3.5 in the run-out and 2.5 at the diffuser.
 ASHRAE's acoustic table is more permissive and splits by shape — above a
 suspended acoustic ceiling, RC 35 allows 8.9 m/s rectangular against 15.2 round,
-because rectangular walls radiate breakout noise. This app uses one figure for
-both shapes.
+because flat rectangular walls are mass-controlled and radiate low-frequency
+breakout noise while a round shell is stiffness-controlled and keeps it in.
+
+**This app uses one figure for both shapes, deliberately.** The round allowance
+is not a constant: across ASHRAE's own table the ratio runs about 1.4 to 1.95
+depending on RC level and duct location. And it is an allowance against
+*breakout* specifically, whereas the single limit here stands in for all duct
+noise — including air noise regenerated at fittings, which travels inside the
+duct to the terminal and is not attenuated by the duct wall at all. See
+`docs/CALCULATION-REVIEW.md` §7 for the working.
 
 **Every CIBSE and ASHRAE number here reached this app through a secondary
 source** — the originals are paywalled. Check them against the project

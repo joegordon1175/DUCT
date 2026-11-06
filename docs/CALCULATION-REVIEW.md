@@ -378,7 +378,105 @@ the hosts were outside the session's network allowlist. They are starting points
 to be checked against a project specification, not authority. All are editable
 in Settings.
 
-One thing not taken up: ASHRAE allows round duct roughly 1.7x the rectangular
-velocity for the same RC (8.9 vs 15.2 m/s at RC 35), because rectangular walls
-radiate breakout noise. The app knows the shape and could apply that, but uses
-one figure for both until asked.
+One thing not taken up: ASHRAE allows round duct a higher velocity than
+rectangular for the same RC. §7 below digs into that, and concludes against
+building it in.
+
+---
+
+## 7. The round-duct velocity allowance, examined
+
+§6 recorded that ASHRAE allows round duct "roughly 1.7x" the rectangular
+velocity, sourced from one secondary site. That number was challenged, so here
+is the working. Short version: **1.7x is not high — if anything it is
+conservative — but it should still not be built into this app.**
+
+### The physics says the ratio could be much larger
+
+Round duct wins on breakout because of *how* it resists sound, not just how
+much. A flat rectangular wall is a mass-controlled panel: at low frequency it
+offers little resistance, and panel resonances put local dips in its
+transmission loss. A round shell is stiffness-controlled, and stiffness is what
+matters at low frequency, which is where duct rumble lives. Measurements bear
+that out — a 305 x 1220 mm rectangular duct against an 815 mm spiral came out
+**25 dB or more** apart across the range of interest, and a 24-inch round
+against a 24-inch square put the gap at about **30 dB from 63 to 250 Hz**.
+
+Converting a transmission-loss advantage into a velocity allowance, with
+straight-duct sound power going as 50·log₁₀(v):
+
+| Velocity ratio | dB it spends (v⁵) | dB it spends (v⁶) |
+|---|---|---|
+| ×1.4 | 7.3 | 8.8 |
+| ×1.7 | 11.5 | 13.8 |
+| ×2.0 | 15.1 | 18.1 |
+| ×2.6 | 20.7 | 24.9 |
+| ×3.2 | 25.3 | 30.3 |
+
+A 25 dB breakout advantage would justify around ×3.2. ASHRAE's ×1.7 spends only
+11.5 dB of it. So the table is far more conservative than the breakout argument
+alone would allow — sensibly, because breakout is not the only path.
+
+### But it is not a constant
+
+Across ASHRAE's own table the round/rectangular ratio is not one number:
+
+| Location / level | Rect | Round | Ratio |
+|---|---|---|---|
+| Above suspended acoustic ceiling, RC 35 | 1750 fpm | 3000 fpm | 1.71 |
+| Within occupied space, RC 45 | 2000 | 3900 | 1.95 |
+| Within occupied space, RC 35 | 1450 | 2600 | 1.79 |
+| Within occupied space, RC 25 | 950 | 1700 | 1.79 |
+| Non-acoustic ceiling, NC 35 (conflicting source) | 2500 | 3500 | 1.40 |
+
+1.4 to 1.95. The RC 35 above-ceiling pair is the one corroborated by ASHRAE's
+own worked example; the rest are secondary and one source contradicts another.
+
+### What it would actually change
+
+At the 1.0 Pa/m target, friction binds before the cap does on anything small, so
+a round allowance changes nothing until the duct is large — and then by exactly
+one standard size. NR 35 office main, cap 7.5 m/s against 7.5 × 1.7 = 12.75:
+
+| Duty | Cap 7.5 | Cap 12.75 | Change |
+|---|---|---|---|
+| 800 l/s | Ø450, 5.0 m/s | Ø450 | — |
+| 1,500 l/s | Ø550, 6.3 m/s | Ø550 | — |
+| 2,500 l/s | Ø700, 6.5 m/s | Ø700 | — |
+| 4,000 l/s | Ø900, 6.3 m/s | Ø800, 8.0 m/s | one size down |
+| 6,000 l/s | Ø1100, 6.3 m/s | Ø900, 9.4 m/s | one size down |
+| 9,000 l/s | Ø1300, 6.8 m/s | Ø1100, 9.5 m/s | one size down |
+| 12,000 l/s | Ø1400, 7.8 m/s | Ø1200, 10.6 m/s | one size down |
+
+### Why it is not built in
+
+1. **The limit here is not a breakout model.** It is one number standing in for
+   all duct noise. Regenerated noise at a bend, damper or take-off travels
+   *inside* the duct to the terminal, where the duct wall's transmission loss
+   does nothing for it. A breakout ratio applied to that limit would claim an
+   accuracy the method does not have.
+2. **There is no single ratio to apply** — 1.4 to 1.95, and the sources
+   disagree with each other.
+3. **Frameworks would be mixed.** These limits are anchored on CIBSE Guide B,
+   which does not split by shape at all. Bolting an ASHRAE shape ratio onto a
+   CIBSE backbone is not one method.
+4. **The gain is narrow**: nothing below ~4,000 l/s, one standard size above.
+
+If it is wanted anyway, the honest form is a per-space round allowance that is
+visible and editable rather than a hidden constant, defaulted to the low end
+(1.4) rather than 1.7.
+
+### Incidental corroboration
+
+ASHRAE states branch ducts should run at about **80 %** of the main-duct value
+and final runouts at **50 % or less**. The role gradation in §6 was arrived at
+independently and lands on it:
+
+| Space | Main | Branch | Runout |
+|---|---|---|---|
+| Bedroom | 5.0 | 4.0 (80 %) | 2.5 (50 %) |
+| Living | 6.0 | 5.0 (83 %) | 3.0 (50 %) |
+| Office | 7.5 | 6.0 (80 %) | 4.0 (53 %) |
+| Open plan | 8.5 | 7.0 (82 %) | 4.5 (53 %) |
+| Retail | 9.0 | 7.5 (83 %) | 5.0 (56 %) |
+| Back of house | 12.0 | 9.0 (75 %) | 6.0 (50 %) |
