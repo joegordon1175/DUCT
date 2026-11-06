@@ -333,10 +333,7 @@ const TEST_RECT = [
 const ctx = (over = {}) => ({
   air: STANDARD_AIR,
   roughness: 0.00009,
-  flexFactor: 1,
-  method: 'friction',
   targetFriction: 1.0,
-  targetVelocity: 5,
   maxVelocity: 6,
   roundSizes: TEST_ROUND,
   rectSizes: TEST_RECT,
@@ -468,59 +465,55 @@ test('both rectangular overrides are used verbatim', () => {
   close(r.aspectRatio, 2, 1e-9);
 });
 
-test('flexible duct compression multiplies the friction rate', () => {
-  const extended = calcSegment(
-    { airflowLps: 200, shape: 'flexible', lengthM: 6, heightMm: 200 },
-    ctx({ roughness: 0.003, flexFactor: 1 })
-  );
-  const compressed = calcSegment(
-    { airflowLps: 200, shape: 'flexible', lengthM: 6, heightMm: 200 },
-    ctx({ roughness: 0.003, flexFactor: 2 })
-  );
-  close(compressed.frictionRate, extended.frictionRate * 2, 1e-9);
-  close(compressed.straightLoss, extended.straightLoss * 2, 1e-9);
+test('flexible duct compression multiplies the friction rate by the PDCF', () => {
+  const seg = { airflowLps: 200, shape: 'flexible', lengthM: 6, heightMm: 200 };
+  const stretched = calcSegment(seg, ctx({ roughness: 0.0009 }));
+  const compressed = calcSegment(seg, ctx({ roughness: 0.0009, flexCompression: 0.15 }));
+  const k = flexCompressionFactor(200, 0.15);
+  close(compressed.frictionRate, stretched.frictionRate * k, 1e-9);
+  close(compressed.straightLoss, stretched.straightLoss * k, 1e-9);
+  close(compressed.flexFactor, k, 1e-9);
 });
 
 test('compressed flexible duct is SIZED to actually hit the friction target', () => {
-  // Regression: sizing used to inflate roughness by the compression factor
-  // while reporting multiplied the friction rate by it — two different models.
-  // Roughness only enters logarithmically, so the duct came out far too small
-  // and the reported rate overshot the target (4x factor -> ~2.4x over).
-  // Exact sizing (no standard-size snapping) so only the model is under test.
-  // The diameter is still rounded up to a whole mm, and dp/m falls steeply with
-  // diameter (~D^-5), so the rate lands just *under* target by up to ~2 %.
-  for (const flexFactor of [1, 2, 4]) {
+  // Sizing applies the same diameter-dependent factor the reported rate uses,
+  // so exact sizing lands on the target (just under, from rounding up a mm).
+  for (const rc of [0, 0.04, 0.15]) {
     const r = calcSegment(
       { airflowLps: 200, shape: 'flexible', lengthM: 6 },
-      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
+      ctx({ roughness: 0.0009, flexCompression: rc, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
     );
-    assert.ok(
-      r.frictionRate <= 1.0 + 1e-9,
-      `flexFactor ${flexFactor}: rounding the diameter up must not overshoot the target, got ${r.frictionRate}`
-    );
-    close(r.frictionRate, 1.0, 0.025, `flexFactor ${flexFactor} must land on the 1.0 Pa/m target`);
+    assert.ok(r.frictionRate <= 1.0 + 1e-9, `rc ${rc}: must not overshoot, got ${r.frictionRate}`);
+    close(r.frictionRate, 1.0, 0.025, `rc ${rc} must land on the 1.0 Pa/m target`);
   }
 });
 
 test('compression makes the sized duct larger, not smaller', () => {
-  const size = (flexFactor) =>
+  const size = (rc) =>
     calcSegment(
       { airflowLps: 200, shape: 'flexible', lengthM: 6 },
-      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
+      ctx({ roughness: 0.0009, flexCompression: rc, targetFriction: 1.0, maxVelocity: 20, useStandardSizes: false })
     ).heightMm;
-  assert.ok(size(2) > size(1), 'a 15 % compressed run needs a bigger duct than an extended one');
-  assert.ok(size(4) > size(2), 'a 30 % compressed run needs a bigger duct again');
+  assert.ok(size(0.04) > size(0), 'tight needs more than stretched');
+  assert.ok(size(0.15) > size(0.04), 'typical needs more again');
 });
 
-test('a zero or invalid flex factor cannot divide the friction target', () => {
-  for (const flexFactor of [0, NaN, undefined, -1]) {
+test('an invalid compression ratio is treated as stretched duct', () => {
+  const ref = calcSegment({ airflowLps: 200, shape: 'flexible', lengthM: 6 }, ctx({ roughness: 0.0009 }));
+  for (const flexCompression of [0, NaN, undefined, -1, 'x']) {
     const r = calcSegment(
       { airflowLps: 200, shape: 'flexible', lengthM: 6 },
-      ctx({ roughness: 0.003, flexFactor, targetFriction: 1.0, maxVelocity: 20 })
+      ctx({ roughness: 0.0009, flexCompression, targetFriction: 1.0, maxVelocity: 20 })
     );
-    assert.ok(Number.isFinite(r.frictionRate) && r.frictionRate > 0, `flexFactor ${flexFactor} stays finite`);
-    assert.ok(Number.isFinite(r.heightMm) && r.heightMm > 0, `flexFactor ${flexFactor} gives a real size`);
+    assert.equal(r.flexFactor, 1, `${flexCompression}`);
+    assert.equal(r.heightMm, ref.heightMm);
   }
+});
+
+test('compression never applies to rigid duct', () => {
+  const a = calcSegment({ airflowLps: 200, shape: 'circular', lengthM: 6 }, ctx({ flexCompression: 0.15 }));
+  const b = calcSegment({ airflowLps: 200, shape: 'circular', lengthM: 6 }, ctx());
+  assert.equal(a.frictionRate, b.frictionRate);
 });
 
 test('fixed-loss fittings ignore ζ and use Pa directly', () => {
@@ -751,10 +744,12 @@ test('only the transport systems carry a minimum velocity', () => {
       system.id
     );
   }
-  // Every system sizes on equal friction. Grease moved off constant velocity
-  // when the design basis did, and dust never needed it: wherever the floor
-  // binds, friction + floor makes the selections constant velocity would.
-  for (const system of SYSTEM_TYPES) assert.equal(system.sizingMethod, 'friction', system.id);
+  // Every system sizes on equal friction; there is no per-system method field.
+  for (const system of SYSTEM_TYPES) assert.equal(system.sizingMethod, undefined, system.id);
+  // NFPA 96 / IMC 506.3.4: 500 fpm = 2.54 m/s, not a rounded 2.5.
+  close(systemType('grease').minVelocityTurndown, 500 * 0.00508, 1e-9);
+  // Grease design air ~1.15 kg/m³ at sea level.
+  close(airProperties(systemType('grease').designTempC, 0).density, 1.15, 0.005);
   assert.equal(systemType('grease').allowsFlexible, false, 'no flex on grease extract');
   assert.equal(systemType('dust').allowsFlexible, false, 'LEV hose is not HVAC flexible duct');
   // The grease SYSTEM and the commercial-kitchen SPACE must not share an id:
@@ -858,7 +853,6 @@ test('a velocity floor overrides the friction target on a small flow', () => {
   const base = {
     air: STANDARD_AIR,
     roughness: 0.00009,
-    method: 'friction',
     targetFriction: 1.0,
     maxVelocity: 9,
     roundSizes: TEST_ROUND,
@@ -883,7 +877,6 @@ test('the velocity floor leaves a flow it does not bind on alone', () => {
   const base = {
     air: STANDARD_AIR,
     roughness: 0.00009,
-    method: 'friction',
     targetFriction: 1.0,
     maxVelocity: 9,
     roundSizes: TEST_ROUND,
@@ -904,7 +897,6 @@ test('a rectangular duct honours the velocity floor too', () => {
     {
       air: STANDARD_AIR,
       roughness: 0.00009,
-      method: 'friction',
       targetFriction: 1.0,
       minVelocity: 5,
       maxVelocity: 9,

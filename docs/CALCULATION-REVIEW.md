@@ -1,5 +1,33 @@
 # DUCT — calculation method & assumptions review
 
+## Current design basis (as of 07/11/2026)
+
+This document is a **chronological decision record**: §1–§21 below are kept as
+written, so earlier sections describe things that later ones replaced. This
+summary is the authoritative current state; the section that set each item is
+in brackets.
+
+| Item | Current basis |
+|---|---|
+| Sizing rule | Constant friction to one project target, default 1.0 Pa/m. No separate velocity mode (§12). |
+| Velocity maximum | From the space served, per role main / branch / runout; ten spaces, NR 25 → NR 55+ and commercial kitchen (§6, §8, §11, §14). One figure for round and rectangular (§7). |
+| Velocity minimum | Transport systems only, and it overrides the friction target on small flows: grease 5 m/s, dust by ACGIH material class 10–22.5 m/s (§10, §12). |
+| Grease extract | Equal friction, 5–9 m/s at design flow, 2:1 aspect, no flex; 2.54 m/s at turndown (NFPA 96 / IMC 506.3.4); calculated at 35 °C design air, ≈1.15 kg/m³ (§9, §10, §21). |
+| Dust extract | Transport minimum governs and overrides the acoustic limit; max 25 m/s; 2:1; no flex; EN 1506 size list (§12, §15). |
+| Flexible duct | Sized on velocity: 3.5 m/s or the runout limit if lower, with a 4 Pa/m ceiling on the compressed rate (§16, §20). Compression ASHRAE Eq. 22 on stretched ε 0.9 mm (§17); Typical 15 % default, Tight 4 % (§18); sizes Ø150–550 (§19). |
+| Leakage | q = k·p^0.65 at mean duct pressure (ductwork ÷ 2), plant excluded (§2 D3). |
+| DW/144 class | On the fan total and max velocity; extract-side class B/C ambiguity flagged. |
+| Size lists | Sizing never leaves the configured list; band misses take the nearer ratio (§2 D1, §12). |
+| Noise | Not calculated; velocity limits are the noise control (§5). |
+
+Superseded along the way, for reading the history: the velocity sizing mode
+and `snapFloor` (§12); the grease friction ceiling / runout cap (§8–§10); the
+flat ×2 / ×4 flex factors and ε 3 mm flex (§16, §17); LBNL size fits as the
+model (§17); 10 % and 30 % flex options (§18); Ø100 / 125 / 160 / 600 flex and
+the 8 Pa/m ceiling (§19, §20); 20 °C air for grease (§21).
+
+---
+
 > **Status: acted on.** Every defect below (D1, D2, D3) is fixed, and the noise
 > model has been removed from the app entirely rather than patched — see
 > §6 for what changed. The findings are kept as written so the reasoning
@@ -1201,3 +1229,34 @@ bites on the small sizes at Typical 15 %:
 
 At Typical 15 % the ceiling limits Ø150 to ~42 l/s and Ø200 to ~99 l/s; a 3 m
 compressed runout loses at most ~12 Pa.
+
+## 21. Debug, calculation check and tidy-up after the flex changes (07/11/2026)
+
+**Calculation check.** The engine was re-implemented independently in Python
+(air properties, Colebrook, equivalent diameter, fittings, leakage, PDCF, run
+totals) and compared on a worked run — all agree to 0.000 %. Ø400 galvanised at
+1000 l/s gives 1.63 Pa/m, matching the ASHRAE friction chart. 5,880-combination
+sweep, function, robustness and migration scripts all pass.
+
+**Defects fixed**
+
+- **Grease design air was recorded but never applied.** §10 adopted 1.15 kg/m³;
+  `designDensity` sat unused in data.js and grease ran at the 20 °C room-air
+  setting. Grease now calculates at 35 °C (ρ 1.146) or the entered temperature
+  if hotter, and Settings says so. Effect is small (friction ~4 % lower), but
+  it is the adopted basis.
+- **Turndown floor 2.5 → 2.54 m/s.** 500 fpm is 2.54 m/s; the flag quoted 2.50.
+  Saves on the old 2.5 default move up; edited values are kept.
+- **Export summary never stated the transport band.** The method line branched
+  on `sizingMethod`, which is `'friction'` for every system, so grease and dust
+  exports read as plain constant friction. Now branches on the system.
+
+**Dead code removed**: `sizingMethod` (data) and the `method` / `targetVelocity`
+context fields (unused by the engine since §12); the legacy flat `flexFactor`
+path in `calcSegment` (the app passes a compression ratio); `sizesFor` (the app
+uses its editable lists). Stale engine doc for the removed velocity mode and
+`maxFriction` rewritten. Flex tests now use compression ratios.
+
+**Notes tidied**: README rewritten to describe the current app only (it still
+described the velocity mode, six spaces, two systems and 1.15 kg/m³ as
+unmodelled); this summary added at the top of the review.
