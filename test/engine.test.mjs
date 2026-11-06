@@ -27,6 +27,7 @@ import {
 import {
   ROUND_SIZES,
   RECT_SIZES,
+  DUST_ROUND_SIZES,
   SPACE_TYPES,
   SYSTEM_TYPES,
   maxVelocity,
@@ -772,6 +773,26 @@ test('a narrow velocity band on a coarse list takes the nearer miss', () => {
   assert.equal(clampToBand(400, 200, 450, COARSE), 400, 'floor not breached: stands');
   assert.equal(clampToBand(500, 200, 450, COARSE), 450, 'in band: largest under the floor');
   assert.equal(clampToBand(500, 276, 291, COARSE), 300, 'no size in band: nearer miss');
+});
+
+test('the dust size list is fine enough to hold the transport band', () => {
+  // The reason it exists. On the general 50 mm list, 45 % of dust duties had no
+  // listed size inside their velocity band; on EN 1506, 14 %.
+  const countMisses = (list) => {
+    let misses = 0;
+    for (const c of DUST_CLASSES) for (let q = 50; q <= 8000; q *= 1.12) {
+      const r = calcSegment(
+        { airflowLps: Math.round(q), shape: 'circular', lengthM: 10 },
+        ctx({ minVelocity: c.minVelocity, maxVelocity: 25, roundSizes: list })
+      );
+      if (r.velocity > 25 * 1.001 || r.velocity < c.minVelocity / 1.001) misses++;
+    }
+    return misses;
+  };
+  const coarse = countMisses(ROUND_SIZES);
+  const fine = countMisses(DUST_ROUND_SIZES);
+  assert.ok(fine < coarse / 2, `EN 1506 ${fine} misses vs 50 mm ${coarse}`);
+  for (let i = 1; i < DUST_ROUND_SIZES.length; i++) assert.ok(DUST_ROUND_SIZES[i] > DUST_ROUND_SIZES[i - 1]);
 });
 
 test('dust classes rise with the difficulty of the material', () => {

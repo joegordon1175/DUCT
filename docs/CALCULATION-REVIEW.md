@@ -1015,3 +1015,30 @@ on LEV. The cap bites on general ventilation in the workshop instead.
 Choosing Dust or Kitchen on an unrelated space — the default open-plan office,
 say — now adds "usually runs in …" to the hint. It does not switch the space:
 a grease duct genuinely can cross a restaurant.
+
+---
+
+## 15. A separate circular size list for dust extract
+
+Dust extract snaps circular duct to its own list, defaulting to the EN 1506
+series — what LEV and spiral suppliers stock. The general list is unchanged and
+still used by every other system.
+
+The case for it is the band width. A transport band of 22.5–25 m/s spans only
+about 5 % in diameter, and 50 mm steps at 200–300 mm are 17–25 %, so they
+usually hold nothing inside it. Measured across 270 dust duties (six material
+classes, 50–8,000 l/s):
+
+| List | Duties with no size in band | Worst miss |
+|---|---|---|
+| General 50 mm | 45 % | 87 % |
+| EN 1506 | 14 % | 29 % |
+| EN 1506 + 150 / 300 | 14 % | 29 % |
+
+Adding 150 and 300, which some LEV ranges carry, buys nothing, so the default is
+the plain series. Rectangular dust duct keeps the shared rectangular list: it is
+rare on LEV, held to 2:1, and corners collect dust regardless.
+
+Example: 800 l/s of average industrial dust went to Ø200 at 25.5 m/s — over the
+cap, flagged "no size in your list" — and now lands on Ø224 inside its band.
+Older saves gain the list on load.

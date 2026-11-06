@@ -21,6 +21,25 @@ export const ROUND_SIZES = [
   1200, 1300, 1400,
 ];
 
+/**
+ * Circular duct for dust / fume extract (LEV) — the EN 1506 preferred-number
+ * series, which is what LEV and spiral suppliers actually stock.
+ *
+ * LEV needs a finer list than general ventilation, and by a lot. A transport
+ * band like 22.5–25 m/s spans only ~5 % in diameter, so 50 mm steps usually
+ * hold nothing inside it. Across 270 dust duties (all six material classes,
+ * 50–8,000 l/s), the 50 mm list left 45 % with no size in their band; this
+ * series leaves 14 %, and the worst miss falls from 87 % to 29 %. Adding 150
+ * and 300 to it — common in some LEV ranges — changes almost nothing (14 %).
+ *
+ * Rectangular dust duct still uses the shared rectangular list: it is rare on
+ * LEV, held to 2:1, and corners collect dust anyway.
+ */
+export const DUST_ROUND_SIZES = [
+  63, 80, 100, 125, 140, 160, 180, 200, 224, 250, 280, 315, 355, 400, 450, 500,
+  560, 630, 710, 800, 900, 1000, 1120, 1250,
+];
+
 /** Flexible duct, 50 mm increments over the range it's normally made in. */
 export const FLEX_SIZES = [
   150, 200, 250, 300, 350, 400, 450, 500, 550, 600,

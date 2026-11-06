@@ -141,9 +141,12 @@ silt up. The material is chosen in Settings:
 
 Each is the lower bound of ACGIH's published range. **These came through
 secondary sources** and the reproductions disagree at the light end; check them
-against the ACGIH manual before specifying. LEV wants a finer size list than the
-shipped 50 mm steps — at 22.5–25 m/s the usable diameter range is only 5 %, so
-the 50 mm list often holds nothing inside it and the app reports the nearer miss.
+against the ACGIH manual before specifying. Dust extract has **its own circular size list**, defaulting to the EN 1506
+series (63, 80, 100, 125, 140, 160, 180, 200, 224, 250, 280, 315 …). It's needed:
+an LEV transport band like 22.5–25 m/s spans only ~5 % in diameter, so 50 mm
+steps usually hold nothing inside it. Across 270 dust duties the general 50 mm
+list left 45 % with no size in their band; EN 1506 leaves 14 %. Edit it in
+Settings to match what your LEV supplier stocks.
 
 **The one figure with code force** is 2.54 m/s (500 fpm) at minimum turndown —
 NFPA 96 / IMC 506.3.4 — and it applies at the turndown flow of a VSD or DCKV

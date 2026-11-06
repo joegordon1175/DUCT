@@ -30,10 +30,11 @@ import {
   ROUND_SIZES,
   RECT_SIZES,
   FLEX_SIZES,
+  DUST_ROUND_SIZES,
 } from './data.js';
 
 /** Standard duct sizes are user-editable; these are the shipped starting points. */
-const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES };
+const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES, dust: DUST_ROUND_SIZES };
 
 /** Duct roles a velocity limit applies to. Flexible duct no longer has its own
  * entry — those figures were inert (see the note in data.js) and flexible is
@@ -219,6 +220,7 @@ function defaultState() {
       round: [...DEFAULT_SIZE_LISTS.round],
       rect: [...DEFAULT_SIZE_LISTS.rect],
       flex: [...DEFAULT_SIZE_LISTS.flex],
+      dust: [...DEFAULT_SIZE_LISTS.dust],
     },
     // Sizing method is fixed per system (see data.js) — not stored here.
     // One project-wide friction target: with noise handled by the velocity cap
@@ -245,6 +247,9 @@ function sizeListFor(key) {
 function sizesForShape(shape) {
   if (shape === 'rectangular') return sizeListFor('rect');
   if (shape === 'flexible') return sizeListFor('flex');
+  // Dust extract has its own circular list: its transport band is so narrow
+  // that 50 mm steps usually hold nothing inside it. See DUST_ROUND_SIZES.
+  if (state.systemTypeId === 'dust') return sizeListFor('dust');
   return sizeListFor('round');
 }
 
@@ -796,7 +801,7 @@ function buildDesignBasis() {
  * that entirely and suits a touch tool better anyway.
  * ------------------------------------------------------------------ */
 
-const SIZE_KEYS = ['round', 'rect', 'flex'];
+const SIZE_KEYS = ['round', 'dust', 'rect', 'flex'];
 
 function renderSizeChips(key) {
   $(`#sizes-${key}-chips`).replaceChildren(
