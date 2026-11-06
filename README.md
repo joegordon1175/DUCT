@@ -79,7 +79,8 @@ so they are one system rather than three identical ones.
 | Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
 | Kitchen grease extract | Constant velocity, as a **minimum** (m/s), under a Pa/m ceiling | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
 
-**The grease friction ceiling** (6.0 Pa/m by default) is the small-duct guard.
+**The grease friction ceiling** (6.0 Pa/m by default, **runouts only**) is the
+small-duct guard.
 Sizing to a minimum velocity puts no lower bound on duct size, so a small duty
 would otherwise be met with something tiny and screaming — 200 l/s on a main
 lands at Ø150, 11.3 m/s and 10.5 Pa/m. The ceiling sets a minimum diameter, and
@@ -87,12 +88,23 @@ where it bites the duct goes up a size and the velocity falls below the transpor
 minimum, which is flagged. That trade between fan energy and keeping grease
 entrained is yours, not the app's.
 
+It applies to runouts alone, and the asymmetry is the point: a runout is short
+and reachable, so relaxing its transport velocity is a cheap trade, while the
+main and riser are the hardest part of the run to clean and hold their velocity
+whatever it costs.
+
 It's set against *actual* selections, not the rate at the minimum velocity: floor
 sizing snaps down, so it lands at the fast end of the band and runs hotter than
-the at-minimum figure suggests. 6.0 moves exactly the pathological duty and
-leaves normal ones alone; 3.0 looks reasonable on paper and isn't — it narrows
-the band below one standard size step, so most duties then satisfy neither
-bound.
+the at-minimum figure suggests. 3.0 looks reasonable on paper and isn't — it
+narrows the band below one standard size step, so most duties then satisfy
+neither bound.
+
+**On the grease minimums themselves:** ASHRAE RP-1033 found grease deposition is
+*reduced* as velocity is reduced, and NFPA 96 cut its minimum from 7.6 to
+2.5 m/s in 2002 on the back of it. DW/172 (6–9 m/s mains) and AIRAH did not
+follow, and AS 1668.2 sets no in-duct velocity at all — only a discharge minimum.
+These defaults follow DW/172 as the most conservative widely-used guidance, not
+because the question is settled. See `docs/CALCULATION-REVIEW.md` §9.
 
 The useful consequence of splitting them: a grease duct's **minimum** comes from
 transport physics and its **maximum** from wherever it runs, so the same duct

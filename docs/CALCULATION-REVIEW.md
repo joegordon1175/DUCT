@@ -573,3 +573,66 @@ through: AIRAH sizes under 180 l/s at 4.5 m/s and 180–4,500 l/s by friction at
 ~1.2 Pa/m, and frames its table as absolute maxima for systems over 1,000 l/s
 rather than recommended design velocities — the same framing as the single
 maximum used here.
+
+---
+
+## 9. AS 1668, and what the research says about grease velocity
+
+Two findings, and the second is uncomfortable.
+
+### AS 1668.2 does not set an in-duct velocity
+
+It sets a **discharge** minimum — objectionable discharges to outside at not
+less than 5 m/s (attributed to Cl. 3.10.3) — but appears to carry no requirement
+for velocity *within* the duct, in either the 2002 or 2012 editions. Vendor and
+consultant guidance that cites "AS 1668 minimum duct velocity" is importing a
+figure from somewhere else.
+
+For a project designed to AS 1668, that means there is no mandated in-duct
+velocity to meet, and the app's grease minimums are guidance rather than
+compliance.
+
+### The premise behind the grease minimum has been overturned — elsewhere
+
+The app encodes the standard reasoning: air slower than the transport minimum
+lets grease settle out, so size to hold it. **ASHRAE RP-1033 tested 500, 1,000,
+1,500 and 2,000 fpm and found grease deposition is reduced as velocity is
+reduced.** On the back of it, NFPA 96 cut its minimum from 1,500 fpm (7.6 m/s)
+to **500 fpm (2.5 m/s)** in March 2002.
+
+7.5 m/s — the app's main default — is almost exactly the figure that research
+retired.
+
+UK and Australian practice did not follow:
+
+| Source | Main | Branch | Note |
+|---|---|---|---|
+| NFPA 96 (post-2002) | 2.5 | 2.5 | after RP-1033 |
+| DW/172 | 6–9 | 5–7 | where this app's defaults sit |
+| AIRAH 5th ed. (reported) | 10 | — | |
+| AS 1668.2 | none | none | discharge only, ≥ 5 m/s |
+
+A 3x spread between codes, with no consensus. The defaults follow DW/172 because
+it is the most conservative widely-used guidance, not because the question is
+settled. Worth a deliberate decision rather than inheritance — holding 7.5 m/s
+costs real fan energy, and the research says it may also deposit more grease,
+not less.
+
+**All of this came through secondary sources.** The RP-1033 report and the
+standards are paywalled, and the sources disagree with each other on details
+(one reads NFPA 96 as prescribing 500 fpm, another as prescribing nothing).
+Confirm before specifying.
+
+### The friction ceiling now applies to runouts only
+
+A runout is short and reachable, so trading its transport velocity away to avoid
+a screaming duct is cheap. The main and riser are the longest, least accessible,
+hardest-to-clean part of the run, so there the transport velocity holds whatever
+it costs in Pa/m — a small main that reads hot is telling you something true
+rather than something to be capped away.
+
+| Duty | Main (no ceiling) | Runout (6.0 Pa/m ceiling) |
+|---|---|---|
+| 200 l/s | Ø150, 11.3 m/s, 10.5 Pa/m | Ø200, 6.4 m/s, 2.5 Pa/m |
+| 300 l/s | Ø200, 9.5 m/s, 5.4 Pa/m | Ø250, 6.1 m/s, 1.8 Pa/m |
+| 500 l/s | Ø250, 10.2 m/s, 4.6 Pa/m | Ø300, 7.1 m/s, 1.9 Pa/m |

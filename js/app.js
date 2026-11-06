@@ -54,8 +54,9 @@ const DEFAULT_MAX_VELOCITY = Object.fromEntries(
  * other system needs no floor. */
 const DEFAULT_MIN_VELOCITY = { ...systemType('grease').minVelocity };
 
-/** Friction ceiling for grease extract, Pa/m — the small-duct guard. */
-const DEFAULT_MAX_FRICTION = maxFriction('grease');
+/** Friction ceiling for a grease RUNOUT, Pa/m — the small-duct guard. Mains and
+ * branches have none: there the transport velocity holds whatever it costs. */
+const DEFAULT_MAX_FRICTION = maxFriction('grease', 'runout');
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -253,9 +254,9 @@ function minVelocityFor(systemId, roleKey) {
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
-/** Friction ceiling for a system, Pa/m, or 0 where it has none. */
-function maxFrictionFor(systemId) {
-  if (!(maxFriction(systemId) > 0)) return 0;
+/** Friction ceiling for a system + duct role, Pa/m, or 0 where there is none. */
+function maxFrictionFor(systemId, roleKey) {
+  if (!(maxFriction(systemId, roleKey) > 0)) return 0;
   const v = state.greaseMaxFriction;
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_FRICTION;
 }
@@ -567,9 +568,9 @@ function context(segment) {
     targetFriction: frictionTarget(),
     targetVelocity: limits.min,
     maxVelocity: limits.max,
-    // Velocity mode only: the Pa/m ceiling that stops a small duty being met
-    // with a tiny, screaming duct.
-    maxFriction: maxFrictionFor(state.systemTypeId),
+    // Velocity mode, runouts only: the Pa/m ceiling that stops a small duty
+    // being met with a tiny, screaming duct.
+    maxFriction: maxFrictionFor(state.systemTypeId, roleKey),
     roundSizes: sizesForShape(segment.shape),
     rectSizes: sizeListFor('rect'),
     useStandardSizes: state.useStandardSizes,
@@ -801,7 +802,7 @@ function renderSettingsTargets() {
     `the system chosen on the main page sets the sizing method.`;
 
   $('#settings-target-friction').value = frictionTarget();
-  $('#settings-grease-max-friction').value = maxFrictionFor('grease');
+  $('#settings-grease-max-friction').value = maxFrictionFor('grease', 'runout');
 
   /* -- the space's acoustic maxima --------------------------------- */
   $('#settings-velocity-matrix').replaceChildren(
@@ -1367,7 +1368,7 @@ function update() {
         flags.push({
           level: 'bad',
           text: result.velocityCapSource === 'friction'
-            ? `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds ${fmt(result.maxVelocityApplied, 1)} m/s, the most the ${fmt(maxFrictionFor(state.systemTypeId), 1)} Pa/m ceiling allows at this duty`
+            ? `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds ${fmt(result.maxVelocityApplied, 1)} m/s, the most the ${fmt(result.frictionCeiling, 1)} Pa/m runout ceiling allows at this duty`
             : `Seg ${i}: ${fmt(result.velocity, 1)} m/s exceeds the ${fmt(ctx.limits.max, 1)} m/s maximum (erosion/noise)`,
         });
       } else if (result.velocity > 0 && result.velocity < ctx.limits.min) {
@@ -1404,7 +1405,7 @@ function update() {
       flags.push({
         level: 'warn',
         text: isFloor
-          ? `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(maxFrictionFor(state.systemTypeId), 1)} Pa/m ceiling — no listed size holds both that and the transport minimum`
+          ? `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(result.frictionCeiling, 1)} Pa/m runout ceiling — no listed size holds both that and the transport minimum`
           : `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(frictionTarget(), 1)} Pa/m target`,
       });
     }
@@ -1502,7 +1503,7 @@ function update() {
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
   $('#space-hint').textContent = isFloor
-    ? `${space.useCase} · ${space.nr} sets the maximum · constant velocity, sized to a minimum transport velocity per duct role, capped at ${fmt(maxFrictionFor(state.systemTypeId), 1)} Pa/m`
+    ? `${space.useCase} · ${space.nr} sets the maximum · constant velocity, sized to a minimum transport velocity per duct role, runouts capped at ${fmt(maxFrictionFor(state.systemTypeId, 'runout'), 1)} Pa/m`
     : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`;
 
   save();
@@ -1523,7 +1524,7 @@ function summaryText() {
   const methodLine =
     systemType(state.systemTypeId).sizingMethod === 'friction'
       ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`
-      : `constant velocity, minimum transport velocity per duct role, capped at ${fmt(maxFrictionFor(state.systemTypeId), 1)} Pa/m`;
+      : `constant velocity, minimum transport velocity per duct role, runouts capped at ${fmt(maxFrictionFor(state.systemTypeId, 'runout'), 1)} Pa/m`;
   const lines = [
     `DUCT — ${state.project || 'Untitled'}`,
     `${space.name} (${space.nr}) · ${systemType(state.systemTypeId).name} · ${methodLine}`,
@@ -1683,7 +1684,7 @@ function init() {
   });
 
   $('#settings-grease-max-friction').addEventListener('input', (e) => {
-    state.greaseMaxFriction = num(e.target.value, maxFrictionFor('grease'));
+    state.greaseMaxFriction = num(e.target.value, maxFrictionFor('grease', 'runout'));
     update();
   });
 

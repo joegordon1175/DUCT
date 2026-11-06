@@ -223,10 +223,28 @@ export const SYSTEM_TYPES = [
     // (e.g. NFPA 96 / DW/172), so it is not offered as a duct type here.
     allowsFlexible: false,
     /**
-     * MINIMUM transport velocity by role, m/s — the speed below which grease
-     * settles out and fouls the duct, which is a fire risk rather than a
-     * maintenance one. DW/172-style indicative figures; confirm against the
-     * canopy duty before specifying.
+     * MINIMUM transport velocity by role, m/s. DW/172-style indicative figures;
+     * confirm against the canopy duty and the standard you design to.
+     *
+     * READ THIS BEFORE TRUSTING THESE NUMBERS. The premise they encode — that
+     * slower air lets grease settle out — is the one US research and code moved
+     * away from. ASHRAE RP-1033 tested 500, 1,000, 1,500 and 2,000 fpm and found
+     * grease deposition is REDUCED as velocity is reduced; on the back of it
+     * NFPA 96 cut its minimum from 1,500 fpm (7.6 m/s) to 500 fpm (2.5 m/s) in
+     * March 2002. 7.5 m/s is almost exactly the figure that research retired.
+     *
+     * UK and Australian practice did not follow. DW/172 still gives 6–9 m/s for
+     * main runs and 5–7 m/s for branches, which is where these defaults sit, and
+     * AIRAH's 5th edition reportedly recommended 10 m/s. Meanwhile AS 1668.2
+     * appears to set NO in-duct velocity requirement at all — only a discharge
+     * minimum (≥ 5 m/s to outside, Cl. 3.10.3).
+     *
+     * So the honest position is a 3x spread between codes (2.5 to 10 m/s) with
+     * no consensus, and a project designing to AS 1668 has no mandated in-duct
+     * figure to meet. These defaults follow DW/172 because that is the most
+     * conservative widely-used guidance, not because it is settled. All of the
+     * above came through SECONDARY sources — the RP-1033 report and the
+     * standards themselves are paywalled — so check before specifying.
      *
      * The main/riser carries the highest minimum because it is the longest,
      * least accessible part of the run and the hardest to clean; branches and
@@ -238,7 +256,7 @@ export const SYSTEM_TYPES = [
      */
     minVelocity: { main: 7.5, branch: 6.0, runout: 6.0 },
     /**
-     * Friction CEILING, Pa/m — the small-duct guard.
+     * Friction CEILING by role, Pa/m — the small-duct guard. RUNOUTS ONLY.
      *
      * Sizing to a minimum velocity puts no lower bound on duct size, so at small
      * duties it will happily pick something tiny and screaming: holding 7.5 m/s
@@ -249,19 +267,24 @@ export const SYSTEM_TYPES = [
      * trade-off between fan energy and keeping grease entrained, not something
      * to resolve silently.
      *
+     * It applies to runouts alone, and that asymmetry is the point. A runout is
+     * short and reachable, so relaxing its transport velocity to avoid a
+     * screaming duct is a cheap trade. The main and riser are the longest, least
+     * accessible, hardest-to-clean part of the run — there the transport
+     * velocity holds whatever it costs in Pa/m, and a small main that reads hot
+     * is telling you something true rather than something to be capped away.
+     *
      * 6.0 Pa/m was picked against ACTUAL selections, not against the rate at the
      * minimum velocity — floor sizing snaps DOWN, so it deliberately lands at
      * the fast end of the band and runs hotter than the at-minimum figure
-     * suggests. At 6.0 it moves exactly the pathological duty (200 l/s on a
-     * main: Ø150 at 11.3 m/s and 10.5 Pa/m becomes Ø200 at 6.4 m/s and
-     * 2.5 Pa/m) and leaves every normal duty alone. Tightening it to 3.0 looks
-     * reasonable on paper and is not: it narrows the band below one standard
-     * size step, so most duties then satisfy neither bound.
+     * suggests. Tightening it to 3.0 looks reasonable on paper and is not: it
+     * narrows the band below one standard size step, so most duties then satisfy
+     * neither bound.
      *
      * Raise it to protect the transport velocity further down; lower it to keep
-     * small ducts quieter and cheaper to run.
+     * small runouts quieter and cheaper to run.
      */
-    maxFriction: 6.0,
+    maxFriction: { runout: 6.0 },
   },
 ];
 
@@ -327,9 +350,12 @@ export function minVelocity(systemId, roleId) {
   return system.minVelocity[roleId] ?? system.minVelocity.branch;
 }
 
-/** Friction ceiling for a system, Pa/m, or 0 where it has none. */
-export function maxFriction(systemId) {
-  return systemType(systemId).maxFriction ?? 0;
+/**
+ * Friction ceiling for a system + duct role, Pa/m, or 0 where there is none.
+ * Only the grease system has one, and only on runouts — see the note above.
+ */
+export function maxFriction(systemId, roleId) {
+  return systemType(systemId).maxFriction?.[roleId] ?? 0;
 }
 
 export function material(id) {

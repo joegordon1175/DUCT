@@ -827,10 +827,21 @@ test('the friction ceiling leaves a duty it does not bind on alone', () => {
   };
   const seg = { airflowLps: 2500, shape: 'circular', lengthM: 10 };
   const loose = calcSegment(seg, { ...base, maxFriction: 0 });
-  const capped = calcSegment(seg, { ...base, maxFriction: maxFriction('grease') });
+  const capped = calcSegment(seg, { ...base, maxFriction: maxFriction('grease', 'runout') });
   assert.equal(capped.heightMm, loose.heightMm, 'same size');
   assert.equal(capped.velocityCapSource, 'noise', 'the acoustic limit is what binds here');
   assert.equal(capped.ruleMet, true);
+});
+
+test('the friction ceiling applies to runouts and nothing else', () => {
+  // A runout is short and reachable, so trading its transport velocity away to
+  // avoid a screaming duct is cheap. The main and riser are the longest, least
+  // accessible, hardest-to-clean part of the run, so there the transport
+  // velocity holds whatever it costs in Pa/m.
+  assert.ok(maxFriction('grease', 'runout') > 0);
+  assert.equal(maxFriction('grease', 'main'), 0);
+  assert.equal(maxFriction('grease', 'branch'), 0);
+  assert.equal(maxFriction('standard', 'runout'), 0, 'friction systems have no ceiling');
 });
 
 test('the grease minimum falls from main to runout', () => {

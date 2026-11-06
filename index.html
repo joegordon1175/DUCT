@@ -230,16 +230,18 @@
     <div class="vel-matrix" id="settings-min-matrix"></div>
 
     <div class="field">
-      <label class="label" for="settings-grease-max-friction">Grease duct friction ceiling</label>
+      <label class="label" for="settings-grease-max-friction">Grease runout friction ceiling</label>
       <div class="input-unit">
         <input id="settings-grease-max-friction" type="number" inputmode="decimal" step="0.5" min="0.5" max="30">
         <span class="unit">Pa/m</span>
       </div>
-      <p class="hint">Sizing to a minimum velocity puts no lower bound on duct size, so a small
-      duty would otherwise be met with a tiny, screaming duct — 200 l/s on a main lands at
-      Ø150, 11.3 m/s and 10.5 Pa/m. This caps that. Where it bites, the duct goes up a size and
-      the velocity drops below the transport minimum, which is flagged: that trade between fan
-      energy and keeping grease entrained is yours to make, not the app's.</p>
+      <p class="hint"><strong>Runouts only.</strong> Sizing to a minimum velocity puts no lower
+      bound on duct size, so a small duty would otherwise be met with a tiny, screaming duct.
+      A runout is short and reachable, so relaxing its transport velocity to avoid that is a
+      cheap trade; the main and riser are the longest, least accessible, hardest-to-clean part
+      of the run, so there the transport velocity holds whatever it costs in Pa/m. Where this
+      bites, the duct goes up a size and the velocity drops below the minimum, which is
+      flagged — that trade is yours to make, not the app's.</p>
     </div>
 
     <h3 class="sub-title">Air conditions</h3>
