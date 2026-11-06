@@ -492,27 +492,15 @@ export function pressureClassDependsOnSign(staticPa, velocity) {
  *   @param {object} ctx.air           from `airProperties`
  *   @param {number} ctx.roughness     absolute roughness ε, m
  *   @param {number} [ctx.flexCompression]  flexible-duct compression ratio
- *     (0.15 = 15 %), applied through the measured diameter-dependent correction
- *     in `flexCompressionFactor`. Takes precedence over `flexFactor`.
- *   @param {number} [ctx.flexFactor]  legacy flat compression multiplier
- *   @param {'friction'|'velocity'} ctx.method  'friction' sizes to a target
- *     friction rate ("ceiling" mode — velocity limits are a check, not a
- *     sizing input). 'velocity' sizes to `targetVelocity` as a MINIMUM
- *     ("floor" mode — kitchen grease extract, where too slow lets material
- *     settle out of the airstream) and snaps standard sizes down instead of
- *     up so the built duct never falls below it.
- *   @param {number} ctx.targetFriction  Pa/m, used when method is 'friction'
- *   @param {number} ctx.targetVelocity  m/s, used when method is 'velocity'
- *   @param {number} [ctx.minVelocity]  m/s floor for 'friction' mode — the duct
- *     may not be sized so large that the air drops below it. On a small flow
- *     this OVERRIDES the friction target, because a duct sized for Pa/m alone
- *     goes slack long before it goes noisy.
- *   @param {number} ctx.maxVelocity     m/s, hard cap for sizing in both modes
- *   @param {number} [ctx.maxFriction]   Pa/m ceiling, 'velocity' mode only —
- *     the small-duct guard. Sizing to a minimum velocity puts no lower bound on
- *     duct size, so a small duty picks something tiny and screaming. A friction
- *     ceiling sets a minimum diameter, which for a given flow is just an upper
- *     bound on velocity, so it is folded into the effective maximum below.
+ *     (0.15 = 15 %), applied through `flexCompressionFactor` (ASHRAE Eq. 22).
+ *     Omitted or 0 = stretched duct.
+ *   @param {number} ctx.targetFriction  Pa/m. The project target for rigid
+ *     duct; for flexible duct the app passes its friction CEILING instead,
+ *     on the compressed rate.
+ *   @param {number} [ctx.minVelocity]  m/s floor — the duct may not be sized so
+ *     large that the air drops below it. On a small flow this OVERRIDES the
+ *     friction target (grease, dust).
+ *   @param {number} ctx.maxVelocity     m/s cap (acoustic, system, or flex)
  *   @param {number[]} ctx.roundSizes, ctx.rectSizes   mm
  *   @param {boolean} ctx.useStandardSizes
  *   @param {number} ctx.preferredAspect, ctx.maxAspect, ctx.maxHeightMm
@@ -524,18 +512,13 @@ export function calcSegment(seg, ctx) {
   const rawFlow = Number(seg.airflowLps);
   const flow = Number.isFinite(rawFlow) && rawFlow > 0 ? rawFlow / 1000 : 0; // m³/s
   const roughness = ctx.roughness ?? 0.00009;
-  // Guarded > 0: it divides the friction target when sizing, below.
-  const rawFlexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
-  const flatFlexFactor = Number.isFinite(rawFlexFactor) && rawFlexFactor > 0 ? rawFlexFactor : 1;
-  // Given a compression ratio, flexible duct uses the measured, diameter-
-  // dependent correction; otherwise the flat factor (kept for callers that
-  // pass one). The two never combine.
+  // Flexible duct: diameter-dependent compression correction. Anything else,
+  // or an invalid ratio, is 1.
   const compression =
-    seg.shape === 'flexible' && Number.isFinite(ctx.flexCompression) && ctx.flexCompression >= 0
+    seg.shape === 'flexible' && Number.isFinite(ctx.flexCompression) && ctx.flexCompression > 0
       ? ctx.flexCompression
-      : null;
-  const flexAt = (diameterM) =>
-    compression !== null ? flexCompressionFactor(diameterM * 1000, compression) : flatFlexFactor;
+      : 0;
+  const flexAt = (diameterM) => (compression > 0 ? flexCompressionFactor(diameterM * 1000, compression) : 1);
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
@@ -544,12 +527,9 @@ export function calcSegment(seg, ctx) {
   const widthOverride = rectangular ? positive(seg.widthMm) : null;
 
   // --- required equivalent diameter from the sizing rule -----------------
-  // The flexible-duct compression factor is applied to the friction RATE
-  // below (`frictionRate = base * flexFactor`), so sizing has to invert that
-  // same model: find the diameter whose *uncompressed* rate is target/factor.
-  // Inflating the roughness instead would be a different model entirely —
-  // roughness only enters logarithmically, so it under-sizes badly (a 4x
-  // factor came out ~2.4x over target).
+  // The flexible-duct compression factor multiplies the friction RATE below,
+  // so sizing applies the same factor at each trial diameter. (Inflating the
+  // roughness instead would under-size badly — it only enters logarithmically.)
   const dFriction = diameterForFriction(flow, ctx.targetFriction, roughness, air, flexAt);
 
   // The minimum velocity the duct must hold. It overrides the friction target

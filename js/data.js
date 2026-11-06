@@ -312,8 +312,10 @@ export const SPACE_TYPES = [
 ];
 
 /**
- * Sizing method by system. Only two, because comfort A/C, fresh air and general
- * extract all size identically — to the project friction target.
+ * Systems. All three size on the same rule — constant friction to the project
+ * target — and differ only in their velocity band: comfort A/C, fresh air and
+ * general extract have no floor; grease and dust carry a transport floor that
+ * overrides the friction target on small flows (and, for dust, everywhere).
  */
 export const SYSTEM_TYPES = [
   {
@@ -321,7 +323,6 @@ export const SYSTEM_TYPES = [
     name: 'Air conditioning / ventilation',
     short: 'A/C · vent',
     useCase: 'Comfort A/C, fresh air, general and toilet extract',
-    sizingMethod: 'friction',
     allowsFlexible: true,
   },
   {
@@ -346,7 +347,6 @@ export const SYSTEM_TYPES = [
      * So the duct is sized on the project friction target at full design flow,
      * with velocity as a two-sided check rather than the sizing input.
      */
-    sizingMethod: 'friction',
     // Flexible duct is not normally fire-code permitted for grease extract
     // (e.g. NFPA 96 / DW/172), so it is not offered as a duct type here.
     allowsFlexible: false,
@@ -356,7 +356,7 @@ export const SYSTEM_TYPES = [
      * flows: sizing for Pa/m alone leaves a small duct oversized and the air
      * slack, so the duct comes back down a size to hold this instead.
      *
-     * Not a grease-suspension figure — see the note on sizingMethod. It is
+     * Not a grease-suspension figure — see the equal-friction note above. It is
      * there to stop a small duty producing a duct nothing moves through.
      */
     minVelocity: 5.0,
@@ -376,7 +376,9 @@ export const SYSTEM_TYPES = [
      * DCKV system, not at design flow. Checked separately; see `turndownPct`
      * on a segment.
      */
-    minVelocityTurndown: 2.5,
+    minVelocityTurndown: 2.54,
+    /* Reference figures from the design basis, not used by the calculation:
+     * hood spigot, discharge. */
     /** Hood spigot connection velocity, m/s — DW/172 practice. Advisory. */
     spigotVelocity: [5.0, 7.0],
     /**
@@ -388,8 +390,12 @@ export const SYSTEM_TYPES = [
     dischargeTarget: 10.0,
     /** Round or square preferred; rectangular held to 2:1. */
     maxAspect: 2,
-    /** Design air density, kg/m³ — roughly 35 °C, not 20 °C room air. */
-    designDensity: 1.15,
+    /**
+     * Design air temperature, °C — exhaust off a cooking line, not 20 °C room
+     * air: about 1.15 kg/m³ at sea level. Grease runs are calculated at this or
+     * the entered air temperature, whichever is hotter.
+     */
+    designTempC: 35,
   },
   {
     id: 'dust',
@@ -403,7 +409,6 @@ export const SYSTEM_TYPES = [
      * velocities (10–22.5 m/s) the floor binds everywhere — a 1 Pa/m target
      * never produces anything near that fast.
      */
-    sizingMethod: 'friction',
     /**
      * Flexible duct is excluded. LEV uses flexible HOSE, which is a different
      * product from HVAC flexible duct: it runs at transport velocity, not the
@@ -584,12 +589,6 @@ export function material(id) {
 
 export function materialsFor(shape) {
   return MATERIALS.filter((m) => m.shapes.includes(shape));
-}
-
-export function sizesFor(shape) {
-  if (shape === 'rectangular') return RECT_SIZES;
-  if (shape === 'flexible') return FLEX_SIZES;
-  return ROUND_SIZES;
 }
 
 /* ------------------------------------------------------------------ *

@@ -226,7 +226,6 @@ function defaultState() {
       flex: [...DEFAULT_SIZE_LISTS.flex],
       dust: [...DEFAULT_SIZE_LISTS.dust],
     },
-    // Sizing method is fixed per system (see data.js) — not stored here.
     // One project-wide friction target: with noise handled by the velocity cap
     // there is no reason for it to vary by room.
     frictionTarget: DEFAULT_FRICTION_TARGET,
@@ -441,6 +440,8 @@ function normaliseState(parsed) {
   ]) {
     if (!(Number.isFinite(merged[key]) && merged[key] > 0)) merged[key] = def;
   }
+  // 500 fpm is 2.54 m/s; saves still holding the old rounded 2.5 default move up.
+  if (merged.turndownVelocity === 2.5) merged.turndownVelocity = DEFAULT_TURNDOWN_VELOCITY;
   if (!Number.isFinite(merged.turndownPct) || merged.turndownPct < 0) merged.turndownPct = 0;
   if (!DUST_CLASSES.some((c) => c.id === merged.dustClassId)) merged.dustClassId = DEFAULT_DUST_CLASS;
   // Old recommended/max pairs keyed to the retired space buckets.
@@ -671,14 +672,25 @@ function openSavedSheet() {
  * Calculation
  * ------------------------------------------------------------------ */
 
+/**
+ * Air the run is calculated at. Grease extract uses its design temperature
+ * (35 °C, ~1.15 kg/m³) unless the entered temperature is hotter — cooking
+ * exhaust is not room air.
+ */
+function designAir() {
+  const entered = num(state.tempC, 20);
+  const grease = systemType(state.systemTypeId);
+  const tempC = state.systemTypeId === 'grease' ? Math.max(entered, grease.designTempC ?? entered) : entered;
+  return airProperties(tempC, num(state.altitudeM, 0));
+}
+
 function context(segment) {
-  const air = airProperties(num(state.tempC, 20), num(state.altitudeM, 0));
+  const air = designAir();
   const mat = material(segment.materialId);
   const flex =
     FLEX_CONDITIONS.find((c) => c.id === segment.flexCondition) ??
     FLEX_CONDITIONS.find((c) => c.id === DEFAULT_FLEX_CONDITION);
   const isFlex = segment.shape === 'flexible';
-  const system = systemType(state.systemTypeId);
   // Flexible duct is locked to the runout role by `enforceShapeRules`, so the
   // role is read straight through; it no longer has a limit of its own.
   const roleKey = segment.role;
@@ -690,17 +702,13 @@ function context(segment) {
     roughness: mat.roughnessMm / 1000,
     // Measured, diameter-dependent compression correction (engine.js).
     flexCompression: flex.compression,
-    // Fixed per system — see data.js. 'velocity' sizes to `limits.min` as a
-    // MINIMUM (engine.js snaps standard sizes down, not up, to hold it).
-    method: system.sizingMethod,
     // Flexible duct sizes on velocity, with its friction ceiling as the
     // backstop: the project target would size it so the selection swings with
     // the compression assumed. See FLEX_MAX_FRICTION.
     targetFriction: isFlex ? flexMaxFrictionFor() : frictionTarget(),
-    targetVelocity: limits.min,
     maxVelocity: limits.max,
-    // Friction mode: the floor that overrides the friction target on a small
-    // flow, where sizing for Pa/m alone leaves the air slack.
+    // The floor that overrides the friction target on a small flow, where
+    // sizing for Pa/m alone leaves the air slack (grease, dust).
     minVelocity: limits.min,
     roundSizes: sizesForShape(segment.shape),
     rectSizes: sizeListFor('rect'),
@@ -746,7 +754,7 @@ function compute() {
     }
   );
 
-  return { results, run, air: airProperties(num(state.tempC, 20), num(state.altitudeM, 0)) };
+  return { results, run, air: designAir() };
 }
 
 /**
@@ -789,8 +797,8 @@ function buildSegmentedControl(container, name, options, selected, onChange) {
 }
 
 function buildDesignBasis() {
-  // Six spaces don't fit a segmented control at phone width, so this one is a
-  // select; the system, with two, stays a segmented control.
+  // Ten spaces don't fit a segmented control at phone width, so this one is a
+  // select; the system, with three, stays a segmented control.
   const spaceSelect = $('#space-select');
   spaceSelect.replaceChildren(
     ...SPACE_TYPES.map((sp) =>
@@ -911,10 +919,9 @@ function syncSizeFields() {
 /* ------------------------------------------------------------------ *
  * Sizing targets (Settings)
  *
- * Sizing method is fixed per space type and isn't user-choosable — but the
- * numbers behind it (friction target; recommended/max velocity per duct
- * role, plus a dedicated set for flexible duct) are, so accidental changes
- * mid-job don't happen from the main page. `settingsSpaceId` is local to the
+ * The numbers behind sizing (friction target, flexible ceiling, max velocity
+ * per space and duct role, grease band, dust class) live here rather than on
+ * the main page, so accidental changes mid-job don't happen. `settingsSpaceId` is local to the
  * sheet — switching space type here to peek at another space's numbers
  * doesn't change the active calculation; it's reset to match whenever the
  * sheet is (re)opened.
@@ -942,7 +949,7 @@ function renderSettingsTargets() {
 
   $('#settings-space-hint').textContent =
     `${space.name} — ${space.nr}. ${space.useCase}. These maxima are set by noise alone; ` +
-    `the system chosen on the main page sets the sizing method.`;
+    `the system chosen on the main page sets any transport minimum.`;
 
   $('#settings-target-friction').value = frictionTarget();
   $('#settings-flex-max-friction').value = flexMaxFrictionFor();
@@ -1637,9 +1644,8 @@ function update() {
     }
     return worst;
   })();
-  // Ceiling runs (friction-sized) care about the FASTEST segment — the one
-  // closest to being too noisy. Floor runs (velocity-sized, kitchen grease
-  // extract) care about the SLOWEST — the one closest to settling out.
+  // The headline is the FASTEST segment — the one closest to being too noisy.
+  // The slowest is shown separately as "min velocity" for transport systems.
   const headlineVelocity = run.maxVelocity;
   const headlineVelocityLabel = 'max velocity m/s';
 
@@ -1655,8 +1661,7 @@ function update() {
     metric(run.pressureClass, 'DW/144 class'),
     metric(`${fmt(run.leakageLps, 1)} l/s`, `leakage (${fmt(run.leakagePct, 1)} %)`),
     metric(fmt(air.density, 3), 'air density kg/m³'),
-    // The headline shows whichever end of the velocity range the sizing method
-    // cares about; this is the other end, so both are on the page.
+    // The headline is the max; the min matters on transport systems.
     metric(
       fmt(run.minVelocity, 2),
       'min velocity m/s'
@@ -1691,10 +1696,11 @@ function update() {
 
   /* -- settings sheet air readout --------------------------------------- */
   $('#air-hint').textContent =
+    (air.tempC !== num(state.tempC, 20) ? `Grease extract: calculated at ${fmt0(air.tempC)} °C design air · ` : '') +
     `ρ = ${fmt(air.density, 4)} kg/m³ · ν = ${air.kinematic.toExponential(3)} m²/s · ` +
     `barometric ${fmt0(air.pressurePa / 100)} mbar`;
 
-  /* -- design basis readout (sizing method is fixed, shown not edited) -- */
+  /* -- design basis readout ---------------------------------------- */
   const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main', 'circular');
   // Each transport system has a natural home. If the chosen space isn't it,
   // say where it usually runs rather than switching the space behind the
@@ -1728,7 +1734,7 @@ function summaryText() {
   const { results, run } = compute();
   const space = spaceType(state.spaceTypeId);
   const methodLine =
-    systemType(state.systemTypeId).sizingMethod === 'friction'
+    state.systemTypeId === 'standard'
       ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`
       : state.systemTypeId === 'dust'
         ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m, ${dustClass(state.dustClassId).name.toLowerCase()} transport ${fmt(minVelocityFor('dust'), 1)} m/s minimum`
@@ -2002,10 +2008,12 @@ function init() {
     'Straight-duct friction is calculated with the Darcy–Weisbach equation using a ' +
     'Colebrook–White friction factor iterated to convergence, on air properties derived ' +
     'from the entered temperature and altitude. Rectangular ducts are sized on the ASHRAE ' +
-    'circular equivalent diameter (equal friction, equal flow). Residential and Commercial ' +
-    'size to a constant friction rate; Kitchen Extract sizes to a minimum transport ' +
-    'velocity instead, so standard duct sizes snap down rather than up — rounding up would ' +
-    'drop the actual velocity below the minimum needed to keep grease entrained. Fitting ' +
+    'circular equivalent diameter (equal friction, equal flow). Every duct sizes to the ' +
+    'project friction target; the space served sets the maximum velocity, and grease and ' +
+    'dust extract add a transport minimum that overrides the target on small flows. ' +
+    'Flexible duct sizes on velocity (3.5 m/s) with a friction ceiling on the compressed ' +
+    'rate, using the ASHRAE Fundamentals compression correction. Grease extract is ' +
+    'calculated at 35 °C design air unless the entered temperature is hotter. Fitting ' +
     'losses use the velocity-pressure method with the ζ values ' +
     'shown, which you can overwrite with manufacturers’ data. Leakage follows the DW/144 ' +
     'class factors, applied to the mean pressure inside the ductwork — the plant ' +
