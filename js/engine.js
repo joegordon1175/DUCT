@@ -338,8 +338,17 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
   if (nearest) return { width: nearest.width, height: nearest.height };
 
   // Nothing satisfied the aspect limit (very large duct in a shallow void):
-  // fall back to the shallowest allowed height and accept the aspect ratio.
-  const h = Math.min(maxHeightMm, sizes[sizes.length - 1]);
+  // take the deepest LISTED height that fits under the void and accept the
+  // aspect ratio. If no listed height fits at all, use the smallest one and let
+  // calcSegment report the void as breached — inventing a height that isn't on
+  // the list is the same fault as inventing a diameter. An empty list has
+  // nothing to choose from, so fall back to 50 mm steps.
+  if (!sizes.length) {
+    const side = Math.max(50, Math.ceil(Math.sqrt(Math.max(minAreaMm2, 1)) / 50) * 50);
+    return { width: side, height: Math.min(side, Number.isFinite(maxHeightMm) ? maxHeightMm : side) };
+  }
+  const fitting = sizes.filter((x) => x <= maxHeightMm + 1e-9);
+  const h = fitting.length ? fitting[fitting.length - 1] : sizes[0];
   return { width: pickWidth(h), height: h };
 }
 
@@ -462,7 +471,10 @@ export function pressureClassDependsOnSign(staticPa, velocity) {
  */
 export function calcSegment(seg, ctx) {
   const air = ctx.air ?? STANDARD_AIR;
-  const flow = Math.max(seg.airflowLps ?? 0, 0) / 1000; // m³/s
+  // Coerce rather than trust: NaN or text here used to run straight through
+  // and come out as NaN in every figure.
+  const rawFlow = Number(seg.airflowLps);
+  const flow = Number.isFinite(rawFlow) && rawFlow > 0 ? rawFlow / 1000 : 0; // m³/s
   const roughness = ctx.roughness ?? 0.00009;
   // Guarded > 0: it divides the friction target when sizing, below.
   const rawFlexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
@@ -524,7 +536,9 @@ export function calcSegment(seg, ctx) {
       );
       const wCap = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
       if (!useStandard) {
-        widthMm = Math.min(Math.ceil(wNeeded), Math.floor(wCeiling));
+        // Same 0 mm trap as the round path: zero flow, or a floor on a trickle.
+        const exact = Math.min(Math.ceil(wNeeded), Math.floor(wCeiling));
+        widthMm = flow > 0 ? Math.max(exact, 1) : (sizes?.[0] ?? 50);
       } else {
         widthMm = clampToBand(snapUp(wNeeded, sizes), wCap, wCeiling, sizes);
       }
@@ -538,7 +552,8 @@ export function calcSegment(seg, ctx) {
       );
       const hCap = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
       if (!useStandard) {
-        heightMm = Math.min(Math.ceil(hNeeded), Math.floor(hCeiling));
+        const exact = Math.min(Math.ceil(hNeeded), Math.floor(hCeiling));
+        heightMm = flow > 0 ? Math.max(exact, 1) : (sizes?.[0] ?? 50);
       } else {
         heightMm = clampToBand(snapUp(hNeeded, sizes), hCap, hCeiling, sizes);
       }
@@ -558,7 +573,12 @@ export function calcSegment(seg, ctx) {
       heightMm = heightOverride;
       sizedBy = 'diameter overridden';
     } else if (!useStandard) {
-      heightMm = Math.min(Math.ceil(requiredD * 1000), Math.floor(dMinVelocity * 1000));
+      // Exact sizing can reach 0 mm — zero airflow, or a velocity floor on a
+      // trickle — and a 0 mm duct turns every downstream figure into 0/0 = NaN.
+      // With nothing flowing, show the smallest listed size, as the rectangular
+      // path already does; otherwise never go below 1 mm.
+      const exact = Math.min(Math.ceil(requiredD * 1000), Math.floor(dMinVelocity * 1000));
+      heightMm = flow > 0 ? Math.max(exact, 1) : (sizes?.[0] ?? 50);
     } else {
       // Velocity floor overrides the friction target on small flows.
       heightMm = clampToBand(snapUp(requiredD * 1000, sizes), dMaxVel * 1000, dMinVelocity * 1000, sizes);
@@ -649,6 +669,10 @@ export function calcSegment(seg, ctx) {
     fittings,
     ruleMet,
     sizeLimited: !ruleMet && sizedBy === 'calculated',
+    // A ceiling void the listed heights can't fit under. Not part of ruleMet —
+    // it is a coordination problem, not a sizing one — but it must be said.
+    exceedsMaxHeight:
+      rectangular && Number.isFinite(ctx.maxHeightMm) && heightMm > ctx.maxHeightMm + 1e-9,
     maxVelocityApplied: Number.isFinite(maxVelocity) ? maxVelocity : 0,
     minVelocityApplied: minVelocity,
     exceedsMaxVelocity: overMax,

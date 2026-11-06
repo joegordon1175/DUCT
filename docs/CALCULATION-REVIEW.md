@@ -915,3 +915,79 @@ override branches: with a height pinned, the width was taken as `min(De-width,
 area ceiling)` and then snapped **up**, which overshoots the ceiling. 1,000 l/s
 at a 300 mm height over a 6–8 m/s band came out 600 × 300 at 5.56 m/s. Both
 override branches now clamp the same way the round branch does.
+
+---
+
+## 13. Full sanity check, debug and function pass (07/11/2026)
+
+Four layers, each finding something the others couldn't:
+
+| Pass | Scope | Found |
+|---|---|---|
+| Engine invariant sweep | 4,704 combinations — 8 spaces × 3 systems × 3 roles × 3 shapes × 14 duties × snapped/exact | 1 defect |
+| Edge inputs | NaN, text, negative, huge, empty lists, zero length, sub-list voids | 4 defects |
+| Physics, independently | Swamee-Jain against Colebrook, ISA, Huebscher De table, hand Darcy | clean |
+| Browser function pass | every control, settings, size lists, save/open/delete, CSV, copy, reload, reset | 1 defect |
+| Robustness | corrupt storage, old library entries, offline, 320 px | 4 defects |
+
+**Invariants checked on every combination:** no NaN or negative outputs; every
+snapped size on its list; velocity equals Q/A; segment total equals its parts;
+`ruleMet` never true with the velocity outside its band; `ruleMet` never true
+over the friction target unless the velocity floor overrode it; duct size never
+shrinks as flow rises.
+
+### Defects fixed
+
+**Restoring saved state could silently wipe it.** The worst of the set, and
+introduced during this pass. `let state = load()` runs at module load; moving
+`LEGACY_SPACE` below that line put it in its temporal dead zone, `normaliseState`
+threw, and `load()` — which treated *every* error as "nothing saved" — returned
+defaults. Every stored calculation came back as a fresh open-plan default, with
+nothing logged. All 74 unit tests passed throughout, because none loads
+`app.js`. Fixed by moving the constant; `load()` now treats only unreadable JSON
+as expected and logs anything else; and `test/app-order.test.mjs` fails if any
+top-level constant on the restore path is declared below the state line —
+confirmed by reintroducing the bug.
+
+**A save with the wrong types bricked the app.** `seg.fittings.map is not a
+function` on load, until storage was cleared by hand. Every stored segment is
+now coerced field by field (`sanitiseSegment`).
+
+**Unknown spaces were labelled "Restaurant".** `spaceType()` fell back by array
+*position*, `SPACE_TYPES[3]`, which was open-plan until the restaurant row went
+in above it. All three lookups now fall back by id.
+
+**An old-format saved job opened under the wrong system.** An entry from before
+the space/system split has no `systemTypeId`, so opening it inherited the
+*current* one: a kitchen job came back as A/C·vent with its flexible grease duct
+left in place. It now takes the legacy mapping.
+
+**Zero or trickle flow on exact sizing gave a 0 mm duct**, so NaN in every
+figure — on the round path and both rectangular override paths. Zero flow now
+shows the smallest listed size; anything else is held to at least 1 mm.
+
+**NaN or text airflow ran straight through to NaN.** The app sanitises first,
+but the engine no longer relies on it.
+
+**A ceiling void below the smallest listed height invented one.** 1,000 × 50 mm
+off a list starting at 100 — the same fault as the original Ø100. It now takes
+the deepest listed height that fits, or the smallest listed one, and a new flag
+says the void is breached. There was no flag for that at all before.
+
+**An empty rectangular size list gave `NaN × NaN`.**
+
+**Every Reset stacked another change listener on the space picker**, so after
+three resets each change rendered four times. It now assigns the handler.
+
+### Clean
+
+Colebrook agrees with Swamee-Jain to within 1 % across four regimes; the
+friction factor is continuous through the laminar–turbulent blend; De matches
+the Huebscher table to 2 mm; Darcy matches a hand calculation exactly;
+`diameterForFriction` lands on its target to six figures; friction rate falls
+strictly with diameter, which the sizing bisection depends on. Offline loading
+works from the service worker; nothing overflows at 320 px.
+
+Two "failures" in the physics pass were errors in the check script, not the
+engine — a sea-level object compared against the 1,500 m figure, and a
+misremembered table value for 1200 × 300 (620 mm by hand, as the engine gives).

@@ -138,6 +138,15 @@ function toast(message) {
  * ------------------------------------------------------------------ */
 
 const STORAGE_KEY = 'duct.state.v1';
+/** Pre-split space ids and the space + system pair each one maps to. Kitchen
+ * extract is its own SPACE now, not back-of-house: the duct runs in a kitchen,
+ * where the canopy fans and appliances dominate. */
+const LEGACY_SPACE = {
+  residential: { spaceTypeId: 'living', systemTypeId: 'standard' },
+  commercial: { spaceTypeId: 'openplan', systemTypeId: 'standard' },
+  industrial: { spaceTypeId: 'kitchen', systemTypeId: 'grease' },
+};
+
 let segmentSeq = 0;
 
 function newSegment(over = {}) {
@@ -326,6 +335,31 @@ function advanceSegmentSeq(segments) {
  * Shared by the working-state load and by opening a saved calculation, so an
  * old save can't reach the app in a shape the rest of the code doesn't expect.
  */
+
+/** A stored segment can be anything — an older version's shape, a hand edit,
+ * a corrupted write. Coerce every field to something the render path can use,
+ * because one bad value here (`fittings` not an array) used to throw on load
+ * and leave the app dead until storage was cleared. */
+function sanitiseSegment(raw) {
+  const seg = { ...newSegment(), ...(raw && typeof raw === 'object' ? raw : {}) };
+  if (typeof seg.id !== 'string' || !seg.id) seg.id = `s${++segmentSeq}`;
+  if (!['circular', 'rectangular', 'flexible'].includes(seg.shape)) seg.shape = 'circular';
+  if (!DUCT_ROLES.some((r) => r.id === seg.role)) seg.role = 'branch';
+  if (!materialsFor(seg.shape).some((m) => m.id === seg.materialId)) seg.materialId = DEFAULT_MATERIAL[seg.shape];
+  if (!FLEX_CONDITIONS.some((c) => c.id === seg.flexCondition)) seg.flexCondition = 'extended';
+  seg.fittings = (Array.isArray(seg.fittings) ? seg.fittings : [])
+    .filter((f) => f && typeof f === 'object')
+    .map((f) => ({
+      ...f,
+      name: typeof f.name === 'string' ? f.name : 'Fitting',
+      qty: Number.isFinite(Number(f.qty)) && Number(f.qty) > 0 ? Number(f.qty) : 1,
+      zeta: Number.isFinite(Number(f.zeta)) && Number(f.zeta) >= 0 ? Number(f.zeta) : 0,
+      fixedPa: Number.isFinite(Number(f.fixedPa)) && Number(f.fixedPa) >= 0 ? Number(f.fixedPa) : 0,
+    }));
+  if (seg.shape === 'flexible') seg.role = 'runout';
+  return seg;
+}
+
 function normaliseState(parsed) {
   const defaults = defaultState();
   const merged = { ...defaults, ...parsed };
@@ -337,13 +371,6 @@ function normaliseState(parsed) {
    * is the only thing driving it) and a SYSTEM (which sets the sizing method).
    * Map an old save onto the nearest pair; the velocity numbers themselves do
    * not carry over, because they were keyed to buckets that no longer exist. */
-  const LEGACY_SPACE = {
-    residential: { spaceTypeId: 'living', systemTypeId: 'standard' },
-    commercial: { spaceTypeId: 'openplan', systemTypeId: 'standard' },
-    // Kitchen extract is its own SPACE now, not back-of-house: the duct runs
-    // in a kitchen, where the canopy fans and appliances dominate.
-    industrial: { spaceTypeId: 'kitchen', systemTypeId: 'grease' },
-  };
   const legacy = LEGACY_SPACE[parsed.spaceTypeId];
   if (legacy) {
     merged.spaceTypeId = legacy.spaceTypeId;
@@ -398,6 +425,8 @@ function normaliseState(parsed) {
   delete merged.roomCorrection;
   // A save from before flexible was excluded from grease extract could still
   // have a flexible segment sitting under it.
+  merged.segments = (Array.isArray(merged.segments) ? merged.segments : []).map(sanitiseSegment);
+  if (merged.segments.length === 0) merged.segments = [newSegment()];
   enforceShapeRules(merged.systemTypeId, merged.segments);
   return merged;
 }
@@ -410,7 +439,13 @@ function load() {
     if (!parsed || !Array.isArray(parsed.segments) || parsed.segments.length === 0) return null;
     advanceSegmentSeq(parsed.segments);
     return normaliseState(parsed);
-  } catch {
+  } catch (err) {
+    // Unreadable JSON is expected — a half-written save, a hand edit — and
+    // starting fresh is the right answer. Anything else is a bug in this file,
+    // and swallowing it silently turns a coding error into "my saved work
+    // vanished" with nothing to show why. That happened: a constant declared
+    // below this call reset every stored calculation to defaults.
+    if (!(err instanceof SyntaxError)) console.error('DUCT: could not restore saved state', err);
     return null;
   }
 }
@@ -509,7 +544,13 @@ function openCalculation(id) {
   advanceSegmentSeq(entry.calc?.segments);
   // Merge the calculation over the CURRENT state so global preferences survive,
   // then normalise — the entry may have been written by an older version.
-  state = normaliseState({ ...state, ...entry.calc });
+  // An entry from before the space/system split has no systemTypeId. Letting it
+  // inherit the CURRENT system meant an old kitchen job opened as A/C·vent,
+  // with its flexible grease duct left in place — so blank it and let the
+  // legacy mapping decide.
+  const calc = { ...entry.calc };
+  if (!('systemTypeId' in calc)) calc.systemTypeId = undefined;
+  state = normaliseState({ ...state, ...calc });
   buildDesignBasis();
   renderAll();
   return true;
@@ -543,7 +584,7 @@ function renderLibrary() {
       const duty = num(segs[0]?.airflowLps, 0);
       const when = new Date(entry.savedAt);
       const meta = [
-        spaceType(calc.spaceTypeId).name,
+        spaceType(LEGACY_SPACE[calc.spaceTypeId]?.spaceTypeId ?? calc.spaceTypeId).name,
         `${segs.length} segment${segs.length === 1 ? '' : 's'}`,
         duty > 0 ? `${fmt0(duty)} l/s` : null,
         Number.isNaN(when.getTime())
@@ -720,10 +761,12 @@ function buildDesignBasis() {
     )
   );
   spaceSelect.value = state.spaceTypeId;
-  spaceSelect.addEventListener('change', (e) => {
+  // A property, not addEventListener: Reset calls this again, and stacking a
+  // listener per reset made every later space change render once per reset.
+  spaceSelect.onchange = (e) => {
     state.spaceTypeId = e.target.value;
     renderAll();
-  });
+  };
 
   buildSegmentedControl($('#system-group'), 'system', SYSTEM_TYPES, state.systemTypeId, (id) => {
     state.systemTypeId = id;
@@ -1479,6 +1522,13 @@ function update() {
     }
     if (result.shape === 'rectangular' && result.aspectRatio > maxAspectFor(state.systemTypeId) + 1e-9) {
       flags.push({ level: 'warn', text: `Seg ${i}: aspect ratio ${fmt(result.aspectRatio, 1)}:1 — costly and hard to fit` });
+    }
+    if (result.exceedsMaxHeight) {
+      flags.push({
+        level: 'bad',
+        text: `Seg ${i}: ${result.heightMm} mm deep won't fit the ${fmt0(num(state.maxHeightMm, 0))} mm void — ` +
+          `no listed height is shallow enough. Add a smaller size or go round.`,
+      });
     }
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });

@@ -390,7 +390,8 @@ export const DUST_CLASSES = [
 ];
 
 export function dustClass(id) {
-  return DUST_CLASSES.find((c) => c.id === id) ?? DUST_CLASSES[3];
+  // Fall back by id, never by position — inserting a class must not change it.
+  return DUST_CLASSES.find((c) => c.id === id) ?? DUST_CLASSES.find((c) => c.id === 'average');
 }
 
 /** Project-wide friction target, Pa/m — the main driver of duct size. */
@@ -424,11 +425,14 @@ export const SHAPES = [
 ];
 
 export function spaceType(id) {
-  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[3];
+  // Fall back by id, never by position. This was SPACE_TYPES[3] — open-plan —
+  // until a restaurant row went in above it and every unknown space silently
+  // became a restaurant.
+  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES.find((s) => s.id === 'openplan');
 }
 
 export function systemType(id) {
-  return SYSTEM_TYPES.find((s) => s.id === id) ?? SYSTEM_TYPES[0];
+  return SYSTEM_TYPES.find((s) => s.id === id) ?? SYSTEM_TYPES.find((s) => s.id === 'standard');
 }
 
 /** Whether flexible duct may be used at all on this system. */
