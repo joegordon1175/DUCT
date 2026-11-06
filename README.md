@@ -77,41 +77,54 @@ so they are one system rather than three identical ones.
 | System | Sizing method | Why |
 |---|---|---|
 | Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
-| Kitchen grease extract | Constant velocity, as a **minimum** (m/s), under a Pa/m ceiling | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+| Kitchen grease extract | Constant friction too, under a two-sided velocity check | Sizes to the same target at full design flow, held to 5–9 m/s (DW/172 extract mains 6–9; 5 at the lower bound of its branch range). Aspect ratio held to 2:1. |
 
-**The grease friction ceiling** (6.0 Pa/m by default, **runouts only**) is the
-small-duct guard.
-Sizing to a minimum velocity puts no lower bound on duct size, so a small duty
-would otherwise be met with something tiny and screaming — 200 l/s on a main
-lands at Ø150, 11.3 m/s and 10.5 Pa/m. The ceiling sets a minimum diameter, and
-where it bites the duct goes up a size and the velocity falls below the transport
-minimum, which is flagged. That trade between fan energy and keeping grease
-entrained is yours, not the app's.
+**The floor overrides Pa/m on small flows.** Sizing for friction alone goes slack
+long before it goes noisy — at 200 l/s the target gives a duct the air barely
+moves through — so the duct comes back down a size and the friction target is
+what gives. That is design intent, so it reads as an info line, not a warning:
 
-It applies to runouts alone, and the asymmetry is the point: a runout is short
-and reachable, so relaxing its transport velocity is a cheap trade, while the
-main and riser are the hardest part of the run to clean and hold their velocity
-whatever it costs.
+| Duty | Selection | Velocity | Pa/m | |
+|---|---|---|---|---|
+| 100 l/s | Ø150 | 5.7 | 2.88 | floor overrides target |
+| 200 l/s | Ø200 | 6.4 | 2.51 | floor overrides target |
+| 500 l/s | Ø350 | 5.2 | 0.87 | target governs |
+| 2,500 l/s | Ø700 | 6.5 | 0.57 | target governs |
+| 6,000 l/s | Ø1000 | 7.6 | 0.50 | target governs |
 
-It's set against *actual* selections, not the rate at the minimum velocity: floor
-sizing snaps down, so it lands at the fast end of the band and runs hotter than
-the at-minimum figure suggests. 3.0 looks reasonable on paper and isn't — it
-narrows the band below one standard size step, so most duties then satisfy
-neither bound.
+**The 5 m/s floor is not a grease-suspension figure.** That reading is pre-2002
+and was overturned: ASHRAE RP-1033 (Kuehn) showed grease deposition *increases*
+with velocity, and NFPA 96 cut its minimum from 1500 fpm (7.6 m/s) to 500 fpm
+(2.54 m/s) by Errata 96-01-01 in January 2002. Any source quoting ≥7.5 m/s "to
+keep grease in suspension" predates that. AS 1668.2-2002 sets no in-duct velocity
+at all — only hood face (Type A capture 0.5 m/s, dishwasher 0.3 m/s) and
+discharge (5 m/s vertical, cl. 5.10.3). There is no code maximum anywhere; the
+US industry norm of 2500 fpm (12.7 m/s) is a noise convention.
 
-**On the grease minimums themselves:** ASHRAE RP-1033 found grease deposition is
-*reduced* as velocity is reduced, and NFPA 96 cut its minimum from 7.6 to
-2.5 m/s in 2002 on the back of it. DW/172 (6–9 m/s mains) and AIRAH did not
-follow, and AS 1668.2 sets no in-duct velocity at all — only a discharge minimum.
-These defaults follow DW/172 as the most conservative widely-used guidance, not
-because the question is settled. See `docs/CALCULATION-REVIEW.md` §9.
+The floor is there to stop a small duty producing a duct nothing moves through.
 
-The useful consequence of splitting them: a grease duct's **minimum** comes from
-transport physics and its **maximum** from wherever it runs, so the same duct
-gets 12 m/s of headroom in a riser and 9 m/s where it crosses a restaurant. Pick
-a space whose maximum is below the transport minimum — a grease duct through a
-bedroom — and the app says which two settings are fighting rather than quietly
-picking one.
+**The one figure with code force** is 2.54 m/s (500 fpm) at minimum turndown —
+NFPA 96 / IMC 506.3.4 — and it applies at the turndown flow of a VSD or DCKV
+system, not at design duty. Enter a turndown percentage in Settings and the app
+checks there; leave it blank for constant volume.
+
+**Fan duty build-up for grease extract**: duct friction + fittings + dirty baffle
+filters (supplier data, typically 100–150 Pa) + hood entry K 0.5–1.0 + discharge
+velocity pressure or cowl + ~10 % margin. The fittings library carries a dirty
+baffle filter and a canopy hood entry for this.
+
+Not yet modelled, and recorded in `js/data.js`: discharge velocity (≥5 m/s
+vertical, 10+ near sensitive receptors per UK planning practice), hood spigot
+velocity 5–7 m/s, the 1.15 kg/m³ design density (the app still defaults to 20 °C
+and 1.204), and the installation notes — fall to hood ≥2 % up to 23 m and ≥8 %
+beyond (IMC 506.3.7), access at each change of direction and ≤3 m centres, no
+fire dampers, liquid-tight welded joints.
+
+The useful consequence of splitting them: a grease duct's velocity band comes
+from the system and its acoustic cap from wherever it runs, and whichever binds
+first wins. Pick a space whose maximum sits below the system's floor — a grease
+duct through a bedroom — and the app says which two settings are fighting rather
+than quietly picking one.
 
 **There is deliberately no minimum velocity on the air conditioning /
 ventilation system.** Constant friction already picks the smallest duct that
@@ -136,7 +149,7 @@ would be a second constraint saying the same thing.
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
 duct role — main, branch and runout — for each of the seven spaces, editable
 independently of which space is active on the main page; the grease transport
-minimums by role and the grease friction ceiling; air temperature and altitude (drives density and viscosity),
+band and the turndown check; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum
