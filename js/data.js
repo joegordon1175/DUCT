@@ -135,7 +135,7 @@ export const SPACE_TYPES = [
     short: 'Bedroom',
     useCase: 'Sleeping spaces — the tightest acoustic case',
     nr: 'NR 25',
-    roles: { main: 5.0, branch: 4.0, runout: 2.5, flex: 2.5 },
+    roles: { main: 5.0, branch: 4.0, runout: 2.5 },
   },
   {
     id: 'living',
@@ -143,7 +143,7 @@ export const SPACE_TYPES = [
     short: 'Living',
     useCase: 'Living rooms, studies, consulting rooms',
     nr: 'NR 30',
-    roles: { main: 6.0, branch: 5.0, runout: 3.0, flex: 3.0 },
+    roles: { main: 6.0, branch: 5.0, runout: 3.0 },
   },
   {
     id: 'office',
@@ -151,7 +151,20 @@ export const SPACE_TYPES = [
     short: 'Office',
     useCase: 'Cellular offices, meeting rooms, teaching spaces',
     nr: 'NR 35',
-    roles: { main: 7.5, branch: 6.0, runout: 4.0, flex: 4.0 },
+    roles: { main: 7.5, branch: 6.0, runout: 4.0 },
+  },
+  {
+    // CIBSE bands restaurants with general offices at NR 35–40 (7.5 / 6.0 / 3.5),
+    // a step below shops — they shared the retail row here until the sources
+    // were read. Main and branch are CIBSE's figures for that row; the runout
+    // follows the office row above rather than CIBSE's 3.5, which is tighter
+    // than anything else in this table at that band (AIRAH's NR 40 is 5.5).
+    id: 'restaurant',
+    name: 'Restaurant / café / bar',
+    short: 'Restaurant',
+    useCase: 'Dining and drinking spaces — quieter than retail',
+    nr: 'NR 35–40',
+    roles: { main: 7.5, branch: 6.0, runout: 4.0 },
   },
   {
     id: 'openplan',
@@ -159,15 +172,21 @@ export const SPACE_TYPES = [
     short: 'Open plan',
     useCase: 'Open-plan workspace, where background level is higher',
     nr: 'NR 38',
-    roles: { main: 8.5, branch: 7.0, runout: 4.5, flex: 4.5 },
+    // AIRAH sw123 NR 40 is 8.0 / 7.0 / 5.5 as an ABSOLUTE maximum, and NR 38 is
+    // the stricter condition — 8.5 was over it. 8.0 sits inside AIRAH, ASHRAE
+    // and CIBSE together; the runout stays well under all three.
+    roles: { main: 8.0, branch: 7.0, runout: 4.5 },
   },
   {
     id: 'retail',
-    name: 'Retail / restaurant / circulation',
+    name: 'Retail / circulation',
     short: 'Retail',
-    useCase: 'Shops, restaurants, lobbies and corridors',
+    useCase: 'Shops, lobbies and corridors',
     nr: 'NR 40',
-    roles: { main: 9.0, branch: 7.5, runout: 5.0, flex: 5.0 },
+    // Was 9.0 / 7.5 / 5.0, which is AIRAH's NR 45 row, not its NR 40 row
+    // (8.0 / 7.0 / 5.5). CIBSE puts shops at 9.0 but bands them NR 40–45.
+    // Restaurants used to share this row and now have their own, a band lower.
+    roles: { main: 8.0, branch: 7.0, runout: 5.0 },
   },
   {
     id: 'backhouse',
@@ -175,7 +194,40 @@ export const SPACE_TYPES = [
     short: 'Back of house',
     useCase: 'Risers, plant, stores, WCs — acoustically non-critical',
     nr: 'NR 45+',
-    roles: { main: 12.0, branch: 9.0, runout: 6.0, flex: 6.0 },
+    // AIRAH sw123 caps the RISER column at 10.0 m/s at every NR, as an absolute
+    // maximum, and CIBSE's industrial row is 10.0 / 8.0 / 5.0 — 12.0 was 20 %
+    // over both. 10.0 / 8.0 / 6.0 is AIRAH's NR 50 row exactly. ASHRAE would
+    // allow far more (17.8 m/s rectangular in a shaft at RC 45), but only
+    // ASHRAE does, and only for that location.
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
+  },
+  {
+    // Deliberately NOT part of the acoustic scale above, which runs from the
+    // tightest room to the least critical. A commercial kitchen is its own
+    // case: the duct runs in a space where the canopy fans and the appliances
+    // already dominate, so the duct is not what anyone hears. The runout figure
+    // in particular does not follow the "half the main" rule the other spaces
+    // use — that rule is about a runout feeding a terminal in an occupied room,
+    // and a grease duct off a canopy is not that. Deriving it that way made the
+    // runout band impossible in every space, which is what sent this here.
+    //
+    // A grease duct leaving the kitchen needs its own acoustic assessment
+    // whatever this app says, so there is no attempt to model that case.
+    id: 'kitchen',
+    name: 'Commercial kitchen',
+    short: 'Kitchen',
+    useCase: 'Inside the kitchen — canopy fans and appliances dominate',
+    nr: 'NR 45+',
+    // No acoustic table covers kitchen extract, so these are the AIRAH riser
+    // cap (10.0 m/s absolute, at every NR) rather than a published kitchen
+    // figure. 12.0 was above it, and above the 9 m/s the grease system itself
+    // allows — the grease cap masked the contradiction for grease ducts while
+    // make-up air through the same kitchen still read 12.
+    //
+    // 10.0 on the main leaves room for the "≤10 m/s on a short riser if noise
+    // allows" case in the design basis: raise the SYSTEM cap from 9 to 10 for
+    // that job and the space no longer stands in the way.
+    roles: { main: 10.0, branch: 8.0, runout: 8.0 },
   },
 ];
 
@@ -193,34 +245,172 @@ export const SYSTEM_TYPES = [
     allowsFlexible: true,
   },
   {
-    id: 'kitchen',
+    // id is 'grease', not 'kitchen', so it can never be confused with the
+    // Commercial kitchen SPACE of that name — they are different lookups.
+    id: 'grease',
     name: 'Kitchen grease extract',
     short: 'Kitchen',
     useCase: 'Commercial kitchen canopies & grease ducts',
-    sizingMethod: 'velocity',
+    /**
+     * EQUAL FRICTION, like everything else — not constant velocity.
+     *
+     * This used to size to a minimum transport velocity, on the standard
+     * reasoning that slower air lets grease settle out. That reasoning is
+     * pre-2002 and was overturned: ASHRAE RP-1033 (Kuehn) showed grease
+     * deposition INCREASES with velocity, and NFPA 96 cut its minimum from
+     * 1500 fpm (7.6 m/s) to 500 fpm (2.54 m/s) by Errata 96-01-01 in January
+     * 2002. Any source quoting 7.5 m/s "to keep grease in suspension" predates
+     * that. AS 1668.2-2002 sets no in-duct velocity at all — only hood face
+     * (Type A capture 0.5 m/s, dishwasher 0.3 m/s) and discharge (5 m/s).
+     *
+     * So the duct is sized on the project friction target at full design flow,
+     * with velocity as a two-sided check rather than the sizing input.
+     */
+    sizingMethod: 'friction',
     // Flexible duct is not normally fire-code permitted for grease extract
     // (e.g. NFPA 96 / DW/172), so it is not offered as a duct type here.
     allowsFlexible: false,
     /**
-     * MINIMUM transport velocity by role, m/s — the speed below which grease
-     * settles out and fouls the duct, which is a fire risk rather than a
-     * maintenance one. DW/172-style indicative figures; confirm against the
-     * canopy duty before specifying.
+     * Velocity floor at full design flow, m/s. Judgement, taken at the lower
+     * bound of DW/172's branch range. It OVERRIDES the friction target on small
+     * flows: sizing for Pa/m alone leaves a small duct oversized and the air
+     * slack, so the duct comes back down a size to hold this instead.
      *
-     * The main/riser carries the highest minimum because it is the longest,
-     * least accessible part of the run and the hardest to clean; branches and
-     * runouts are shorter and reachable, so they sit lower.
-     *
-     * The MAXIMUM still comes from the space the duct runs through, which is
-     * the point of splitting the two: the same grease duct gets 12 m/s of
-     * headroom in a riser and 9 m/s where it crosses a restaurant.
+     * Not a grease-suspension figure — see the note on sizingMethod. It is
+     * there to stop a small duty producing a duct nothing moves through.
      */
-    minVelocity: { main: 7.5, branch: 6.0, runout: 6.0, flex: 6.0 },
+    minVelocity: 5.0,
+    /**
+     * Velocity ceiling at full design flow, m/s. DW/172 gives 6–9 m/s for
+     * extract mains; 9 is the top of that. Short risers can take ~10 if noise
+     * allows, which is a per-job override rather than a default. There is no
+     * code maximum; the US industry norm is 2500 fpm (12.7 m/s), set by noise.
+     *
+     * The SPACE the duct runs through caps it further — see `maxVelocity`.
+     */
+    maxVelocity: 9.0,
+    /**
+     * Velocity floor at minimum turndown, m/s — NFPA 96 / IMC 506.3.4
+     * (500 fpm). This is the one velocity figure that is a code requirement
+     * rather than guidance, and it applies at the turndown flow of a VSD or
+     * DCKV system, not at design flow. Checked separately; see `turndownPct`
+     * on a segment.
+     */
+    minVelocityTurndown: 2.5,
+    /** Hood spigot connection velocity, m/s — DW/172 practice. Advisory. */
+    spigotVelocity: [5.0, 7.0],
+    /**
+     * Discharge velocity, m/s. AS 1668.2-2002 cl. 5.10.3 requires ≥ 5 m/s
+     * vertical for systems over 1000 l/s. UK planning practice asks for 10–15
+     * near sensitive receptors, so 10 is the target rather than the minimum.
+     */
+    dischargeMin: 5.0,
+    dischargeTarget: 10.0,
+    /** Round or square preferred; rectangular held to 2:1. */
+    maxAspect: 2,
+    /** Design air density, kg/m³ — roughly 35 °C, not 20 °C room air. */
+    designDensity: 1.15,
+  },
+  {
+    id: 'dust',
+    name: 'Dust / fume extract (LEV)',
+    short: 'Dust',
+    useCase: 'Local exhaust ventilation — woodworking, grinding, fume',
+    /**
+     * Equal friction with a transport-velocity floor, like the other systems.
+     * A separate constant-velocity sizing mode is unnecessary: wherever the
+     * floor binds the two produce identical selections, and at ACGIH transport
+     * velocities (10–22.5 m/s) the floor binds everywhere — a 1 Pa/m target
+     * never produces anything near that fast.
+     */
+    sizingMethod: 'friction',
+    /**
+     * Flexible duct is excluded. LEV uses flexible HOSE, which is a different
+     * product from HVAC flexible duct: it runs at transport velocity, not the
+     * 3.5 m/s that `FLEX_MAX_VELOCITY` holds comfort runouts to. Offering it
+     * here would produce a contradiction the app would then have to explain.
+     */
+    allowsFlexible: false,
+    /** Set from the dust class — see `DUST_CLASSES`. The default is average. */
+    minVelocity: 17.5,
+    /**
+     * Erosion and energy, not noise. ACGIH gives no maximum; above roughly
+     * this, abrasive dust starts eating elbows and the fan power stops being
+     * worth it.
+     */
+    maxVelocity: 25.0,
+    /**
+     * The transport minimum OVERRIDES the space's acoustic maximum.
+     *
+     * Every space here caps at 10 m/s or less, and every dust class needs more
+     * than that, so without this a dust system could never be sized at all.
+     * That is not a modelling fudge: in practice an LEV duct runs at transport
+     * velocity and the noise is dealt with separately, because silting the duct
+     * up is the worse failure. The app says plainly that the duct will be loud
+     * rather than pretending the acoustic limit was met.
+     */
+    transportGoverns: true,
+    /** Round or square strongly preferred — corners collect dust. */
+    maxAspect: 2,
   },
 ];
 
+/**
+ * Minimum transport velocity by dust class, m/s — ACGIH *Industrial Ventilation:
+ * A Manual of Recommended Practice*, the classic design-velocity table.
+ *
+ * This is the one place a minimum velocity really is about keeping material
+ * airborne, and it is NOT what ASHRAE RP-1033 overturned — that was grease
+ * aerosol condensing on duct walls, a different mechanism from a solid particle
+ * dropping out of an airstream. Fall below these and the duct silts up.
+ *
+ * READ BEFORE USE: these came through SECONDARY sources. The ACGIH manual is
+ * paywalled, and the reproductions disagree at the light end — one puts light
+ * dust at 2,000–2,500 fpm against the 3,000 fpm here. Corroborated at three
+ * points only: welding fume ~2,000–2,500 fpm, wood/sawdust ~3,500 fpm, metal
+ * turnings ~4,500 fpm. Check against the manual before specifying.
+ *
+ * Each figure is the LOWER bound of the published range, which is what
+ * "minimum transport velocity" means. ACGIH and ASHRAE are both reported to
+ * suggest designing 10–15 % above it.
+ */
+export const DUST_CLASSES = [
+  { id: 'fume', name: 'Fumes & very fine', minVelocity: 10.0,
+    examples: 'Welding and soldering fume, zinc and aluminium oxide' },
+  { id: 'light', name: 'Very fine light dust', minVelocity: 12.5,
+    examples: 'Cotton lint, wood flour, litho powder' },
+  { id: 'dry', name: 'Dry dusts & powders', minVelocity: 15.0,
+    examples: 'Fine rubber dust, moulding powder, jute lint, soap, leather shavings' },
+  { id: 'average', name: 'Average industrial dust', minVelocity: 17.5,
+    examples: 'Sawdust, grinding dust, coffee, silica flour, brick cutting, limestone' },
+  { id: 'heavy', name: 'Heavy dusts', minVelocity: 20.0,
+    examples: 'Wet sawdust, metal turnings, shot blast, lead dust, cast iron borings' },
+  { id: 'moist', name: 'Heavy or moist', minVelocity: 22.5,
+    examples: 'Moist cement, quicklime, sticky buffing lint, lead with chips' },
+];
+
+export function dustClass(id) {
+  // Fall back by id, never by position — inserting a class must not change it.
+  return DUST_CLASSES.find((c) => c.id === id) ?? DUST_CLASSES.find((c) => c.id === 'average');
+}
+
 /** Project-wide friction target, Pa/m — the main driver of duct size. */
 export const DEFAULT_FRICTION_TARGET = 1.0;
+
+/**
+ * Velocity cap for flexible duct, m/s — AIRAH sw022, which calls it reasonable
+ * present-day practice to limit a flexible runout to this.
+ *
+ * The per-space flexible entries removed earlier were inert and unsourced; this
+ * is neither. It binds where a space's runout limit is looser than 3.5 — retail
+ * (5.0), back of house (6.0) — which is most of them.
+ *
+ * The same source allows twice the measured length when working out flexible
+ * friction. That is a second model alongside the compression factors in
+ * `FLEX_CONDITIONS`, not a replacement: x2 on length is the same arithmetic as
+ * the "15 % compressed" x2 on rate over a given run.
+ */
+export const FLEX_MAX_VELOCITY = 3.5;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },
@@ -235,11 +425,14 @@ export const SHAPES = [
 ];
 
 export function spaceType(id) {
-  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[3];
+  // Fall back by id, never by position. This was SPACE_TYPES[3] — open-plan —
+  // until a restaurant row went in above it and every unknown space silently
+  // became a restaurant.
+  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES.find((s) => s.id === 'openplan');
 }
 
 export function systemType(id) {
-  return SYSTEM_TYPES.find((s) => s.id === id) ?? SYSTEM_TYPES[0];
+  return SYSTEM_TYPES.find((s) => s.id === id) ?? SYSTEM_TYPES.find((s) => s.id === 'standard');
 }
 
 /** Whether flexible duct may be used at all on this system. */
@@ -252,28 +445,32 @@ export function shapesForSystem(systemId) {
   return systemAllowsFlexible(systemId) ? SHAPES : SHAPES.filter((s) => s.id !== 'flexible');
 }
 
-/** Role key for a lookup — flexible duct has its own entry whatever its role. */
-function roleKey(roleId, shape) {
-  return shape === 'flexible' ? 'flex' : roleId;
-}
+/**
+ * Flexible duct used to carry its own velocity entry per space. It has been
+ * dropped: those figures were inert, because flexible duct's roughness makes the
+ * friction target bind long before any velocity limit does — at 120 l/s a
+ * bedroom (2.5 m/s), an office (4.0) and a retail space (5.0) all produced the
+ * same Ø250 at 2.44 m/s. What actually matters for flexible duct is its pressure
+ * drop, and that is already modelled by roughness and the compression factor.
+ * Flexible duct is locked to the runout role, so it reads that space's limit.
+ */
 
 /**
  * Maximum velocity for a space + duct role, m/s. Set by noise alone.
  */
-export function maxVelocity(spaceId, roleId, shape) {
+export function maxVelocity(spaceId, roleId) {
   const space = spaceType(spaceId);
-  return space.roles[roleKey(roleId, shape)] ?? space.roles.branch;
+  return space.roles[roleId] ?? space.roles.branch;
 }
 
 /**
- * Minimum velocity for a system + duct role, m/s, or 0 where there is none.
- * Only kitchen grease extract has one; the friction target is what stops a
- * friction-sized duct being oversized.
+ * Velocity floor at design flow for a system, m/s, or 0 where there is none.
+ * Only kitchen grease extract has one, and it is flat across the roles: the
+ * figure is a lower bound on how slack the air may get, not a per-position
+ * transport requirement.
  */
-export function minVelocity(systemId, roleId, shape) {
-  const system = systemType(systemId);
-  if (!system.minVelocity) return 0;
-  return system.minVelocity[roleKey(roleId, shape)] ?? system.minVelocity.branch;
+export function minVelocity(systemId) {
+  return systemType(systemId).minVelocity ?? 0;
 }
 
 export function material(id) {
@@ -333,6 +530,7 @@ export const FITTINGS = [
 
   // --- terminations ---------------------------------------------------
   { id: 'entry_sharp', name: 'Duct entry, sharp edged', zeta: 0.5, group: 'Entries & exits', shapes: ['circular', 'rectangular', 'flexible'] },
+  { id: 'hood_entry', name: 'Canopy hood entry', zeta: 0.75, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
   { id: 'entry_bell', name: 'Duct entry, bellmouth', zeta: 0.05, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
   { id: 'exit', name: 'Discharge to still air', zeta: 1.0, group: 'Entries & exits', shapes: ['circular', 'rectangular', 'flexible'] },
   { id: 'louvre', name: 'Weather louvre (free area 50 %)', zeta: 2.5, group: 'Entries & exits', shapes: ['circular', 'rectangular'] },
@@ -347,6 +545,9 @@ export const FITTINGS = [
 
   // --- fixed-pressure items (ζ ignored, Pa entered directly) ----------
   { id: 'grille', name: 'Grille / diffuser', fixedPa: 25, group: 'Fixed loss', shapes: ['circular', 'rectangular', 'flexible'] },
+  // Kitchen grease extract fan-duty build-up: dirty baffle filters (supplier
+  // data, typically 100–150 Pa) and the hood entry (K 0.5–1.0).
+  { id: 'baffle', name: 'Baffle filters, dirty', fixedPa: 125, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'silencer', name: 'Attenuator / silencer', fixedPa: 40, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'filter', name: 'Filter (dirty)', fixedPa: 150, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'coil', name: 'Heating / cooling coil', fixedPa: 80, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },

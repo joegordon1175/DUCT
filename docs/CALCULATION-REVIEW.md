@@ -480,3 +480,514 @@ independently and lands on it:
 | Open plan | 8.5 | 7.0 (82 %) | 4.5 (53 %) |
 | Retail | 9.0 | 7.5 (83 %) | 5.0 (56 %) |
 | Back of house | 12.0 | 9.0 (75 %) | 6.0 (50 %) |
+
+---
+
+## 8. Follow-up: kitchen as its own space, and the small-duct guard
+
+### The grease runout band was impossible everywhere
+
+§6 split the velocity limits so the space sets the maximum and the system sets
+the minimum. A sanity check of kitchen mode found that the grease **runout** band
+was unusable in every single space:
+
+| Space | Runout min | Runout max | |
+|---|---|---|---|
+| Bedroom / Living / Office / Open plan / Retail | 6.0 | 2.5–5.0 | max below min — impossible |
+| Back of house | 6.0 | 6.0 | zero width — only an exact 6.00 m/s hit passes |
+
+The cause was a category error introduced by the split. Each space's runout
+maximum was derived as ~50 % of its main, following ASHRAE's rule — but that rule
+is about **runouts feeding a terminal in an occupied room**. A grease duct off a
+canopy is not that, so the figure never applied to it.
+
+**Fix: a commercial kitchen is its own space** (main 12.0, branch 8.0, runout
+8.0, NR 45+). The duct runs where canopy fans and appliances dominate, so the
+duct is not what anyone hears, and the runout is not tied to the half-the-main
+rule. A grease duct leaving the kitchen needs its own acoustic assessment
+whatever this app says, so no attempt is made to model that case. The space sits
+outside the acoustic scale deliberately, and the ordering tests exclude it.
+
+### Floor sizing had no lower bound on duct size
+
+The same check found that velocity-floor sizing will meet a small duty with a
+tiny, screaming duct, because nothing stops it: on the shipped 50 mm list,
+200 l/s on a main lands at Ø150, **11.3 m/s and 10.5 Pa/m**. Holding 7.5 m/s at
+100 l/s costs 5.8 Pa/m and at 50 l/s, 8.9 Pa/m.
+
+**Fix: a friction ceiling on the grease system**, 6.0 Pa/m by default and
+editable. A Pa/m ceiling is a minimum diameter, and at a fixed flow a minimum
+diameter is just a maximum velocity — so it is converted to one and folded into
+the effective cap, which means the whole of the sizing below, round and
+rectangular alike, needs no further knowledge of it. Where it binds, the duct
+goes up a size and the velocity drops below the transport minimum; that is
+flagged, because the trade between fan energy and keeping grease entrained is the
+engineer's to make. `velocityCapSource` says which limit bound the duct so the UI
+names the right one rather than blaming noise.
+
+**Choosing the default taught something.** 3.0 Pa/m looked right from the rate
+*at* the minimum velocity — and is wrong. Floor sizing snaps **down**, so it
+deliberately lands at the fast end of the band and runs hotter than the
+at-minimum figure suggests. Worse, 3.0 narrows the band below one standard size
+step, so most duties then satisfy neither bound: only 5 of 12 test duties met the
+rule, against 12 of 12 uncapped.
+
+| Ceiling | Worst Pa/m | Duties meeting the rule |
+|---|---|---|
+| none | 10.51 | 12 / 12 |
+| 3.0 | 3.81 | 5 / 12 |
+| 4.0 | 6.12 | 8 / 12 |
+| 6.0 | 6.12 | 10 / 12 |
+| 8.0 | 10.51 | 11 / 12 |
+
+6.0 moves exactly the pathological duty (200 l/s: Ø150 at 11.3 m/s and 10.5 Pa/m
+becomes Ø200 at 6.4 m/s and 2.5 Pa/m) and leaves every normal duty alone.
+
+### Flexible duct: limits dropped, role locked
+
+The per-space flexible velocity entries were inert — flexible duct's roughness
+makes the friction target bind long before any velocity limit does. At 120 l/s a
+bedroom (2.5 m/s), an office (4.0) and a retail space (5.0) all produced the same
+Ø250 at 2.44 m/s. They are gone; what actually matters for flexible duct is its
+pressure drop, already modelled by roughness and the compression factor.
+
+Flexible is now locked to the **runout** role. It had to be: the role picker is
+hidden for flexible duct, so without the lock a segment kept whatever role it had
+and silently read that limit — a flexible "main" checked against the main's
+velocity. The app also no longer lets you build `role = main` + `shape =
+flexible`, a combination nobody would install.
+
+### One thing that looked like a bug and was not
+
+Velocity is not monotonic in airflow under floor sizing. It sawtooths, dropping
+back toward the minimum each time it steps up a size. A check flagged it; the
+check was wrong, not the engine.
+
+### Still outstanding
+
+AIRAH's "Maximum duct velocities and noise effects" table (Skills Workshop
+sw123) could not be read — `airah.org.au` is outside the session's network
+allowlist. A **DUCT** cloud environment now exists with the reference hosts
+allowed, for the consensus pass across CIBSE, ASHRAE and AIRAH. What did come
+through: AIRAH sizes under 180 l/s at 4.5 m/s and 180–4,500 l/s by friction at
+~1.2 Pa/m, and frames its table as absolute maxima for systems over 1,000 l/s
+rather than recommended design velocities — the same framing as the single
+maximum used here.
+
+---
+
+## 9. AS 1668, and what the research says about grease velocity
+
+Two findings, and the second is uncomfortable.
+
+### AS 1668.2 does not set an in-duct velocity
+
+It sets a **discharge** minimum — objectionable discharges to outside at not
+less than 5 m/s (attributed to Cl. 3.10.3) — but appears to carry no requirement
+for velocity *within* the duct, in either the 2002 or 2012 editions. Vendor and
+consultant guidance that cites "AS 1668 minimum duct velocity" is importing a
+figure from somewhere else.
+
+For a project designed to AS 1668, that means there is no mandated in-duct
+velocity to meet, and the app's grease minimums are guidance rather than
+compliance.
+
+### The premise behind the grease minimum has been overturned — elsewhere
+
+The app encodes the standard reasoning: air slower than the transport minimum
+lets grease settle out, so size to hold it. **ASHRAE RP-1033 tested 500, 1,000,
+1,500 and 2,000 fpm and found grease deposition is reduced as velocity is
+reduced.** On the back of it, NFPA 96 cut its minimum from 1,500 fpm (7.6 m/s)
+to **500 fpm (2.5 m/s)** in March 2002.
+
+7.5 m/s — the app's main default — is almost exactly the figure that research
+retired.
+
+UK and Australian practice did not follow:
+
+| Source | Main | Branch | Note |
+|---|---|---|---|
+| NFPA 96 (post-2002) | 2.5 | 2.5 | after RP-1033 |
+| DW/172 | 6–9 | 5–7 | where this app's defaults sit |
+| AIRAH 5th ed. (reported) | 10 | — | |
+| AS 1668.2 | none | none | discharge only, ≥ 5 m/s |
+
+A 3x spread between codes, with no consensus. The defaults follow DW/172 because
+it is the most conservative widely-used guidance, not because the question is
+settled. Worth a deliberate decision rather than inheritance — holding 7.5 m/s
+costs real fan energy, and the research says it may also deposit more grease,
+not less.
+
+**All of this came through secondary sources.** The RP-1033 report and the
+standards are paywalled, and the sources disagree with each other on details
+(one reads NFPA 96 as prescribing 500 fpm, another as prescribing nothing).
+Confirm before specifying.
+
+### The friction ceiling now applies to runouts only
+
+A runout is short and reachable, so trading its transport velocity away to avoid
+a screaming duct is cheap. The main and riser are the longest, least accessible,
+hardest-to-clean part of the run, so there the transport velocity holds whatever
+it costs in Pa/m — a small main that reads hot is telling you something true
+rather than something to be capped away.
+
+| Duty | Main (no ceiling) | Runout (6.0 Pa/m ceiling) |
+|---|---|---|
+| 200 l/s | Ø150, 11.3 m/s, 10.5 Pa/m | Ø200, 6.4 m/s, 2.5 Pa/m |
+| 300 l/s | Ø200, 9.5 m/s, 5.4 Pa/m | Ø250, 6.1 m/s, 1.8 Pa/m |
+| 500 l/s | Ø250, 10.2 m/s, 4.6 Pa/m | Ø300, 7.1 m/s, 1.9 Pa/m |
+
+---
+
+## 10. Design basis adopted (06/11/2026)
+
+A project design basis supersedes the defaults derived in §6–§9. It resolves the
+open question in §9 in the opposite direction to the app's previous behaviour.
+
+### Grease extract sizes on equal friction, not constant velocity
+
+The system no longer has a sizing method of its own. It sizes to the project
+friction target at full design flow, like everything else, with velocity as a
+two-sided check:
+
+| | Figure | Basis |
+|---|---|---|
+| Method | equal friction, 1.0 Pa/m at design flow | constant section hood → fan where practical |
+| Max velocity | 9 m/s | DW/172 extract mains 6–9; ≤10 short risers if noise allows |
+| Min velocity at design flow | 5 m/s | judgement, DW/172 branch lower bound |
+| Min velocity at turndown | 2.5 m/s | NFPA 96 / IMC 506.3.4 (500 fpm) |
+| Aspect ratio | ≤ 2:1 | round/square preferred |
+| Air density | 1.15 kg/m³ | ≈ 35 °C, not room air |
+
+**The floor overrides Pa/m on small flows.** Sizing for friction alone goes
+slack long before it goes noisy — at 200 l/s the target gives a duct the air
+barely moves through — so the duct comes back down a size and the friction
+target is what gives. That is design intent, so it reads as an info line, not a
+warning:
+
+| Duty | Selection | Velocity | Pa/m | |
+|---|---|---|---|---|
+| 100 l/s | Ø150 | 5.7 | 2.88 | floor overrides target |
+| 200 l/s | Ø200 | 6.4 | 2.51 | floor overrides target |
+| 300 l/s | Ø250 | 6.1 | 1.77 | floor overrides target |
+| 500 l/s | Ø350 | 5.2 | 0.87 | target governs |
+| 2,500 l/s | Ø700 | 6.5 | 0.57 | target governs |
+| 6,000 l/s | Ø1000 | 7.6 | 0.50 | target governs |
+
+The engine's velocity floor is general, not grease-specific: `ctx.minVelocity`
+in friction mode. Rectangular honours it through the area ceiling, which
+`selectRectangular` now applies in both directions.
+
+### The 5 m/s is not a grease-suspension figure
+
+Worth stating, because the number looks like the old one. The pre-2002 reading —
+that slower air lets grease settle — is what **ASHRAE RP-1033 (Kuehn)**
+overturned: deposition *increases* with velocity, and NFPA 96 cut its minimum
+from 1500 fpm (7.6 m/s) to 500 fpm (2.54 m/s) by **Errata 96-01-01, January
+2002**. Any source quoting ≥7.5 m/s "to keep grease in suspension" predates that.
+
+The 5 m/s floor is there to stop a small duty producing a duct nothing moves
+through. The 2.5 m/s turndown figure is the one that carries code force, and it
+applies at the minimum flow of a VSD or DCKV system, not at design duty — which
+is why the app asks for a turndown percentage and checks there.
+
+### AS 1668.2-2002, corrected
+
+Sets **no in-duct velocity**. It covers hood face (Type A capture 0.5 m/s,
+dishwasher 0.3 m/s) and discharge (5 m/s vertical, **cl. 5.10.3**, systems over
+1000 l/s). §9 cited cl. 3.10.3 from a secondary source; 5.10.3 is correct.
+
+There is no code *maximum* anywhere; the US industry norm of 2500 fpm (12.7 m/s)
+is a noise convention.
+
+### What the friction ceiling became
+
+The Pa/m ceiling added in §8 and scoped to runouts in §9 is **gone**. It existed
+to stop constant-velocity sizing producing a tiny screaming duct; with equal
+friction that pathology cannot arise, because the duct is never smaller than the
+velocity floor requires. Worst case is now 2.88 Pa/m at 100 l/s against 10.5 Pa/m
+before.
+
+### Carried in but not yet modelled
+
+Recorded in `js/data.js` on the grease system, and surfaced nowhere yet:
+
+- **Discharge** ≥5 m/s vertical, target 10+ near sensitive receptors (UK
+  planning practice 10–15). Needs a discharge input — a stack is not a duct
+  segment.
+- **Hood spigot** 5–7 m/s (DW/172 practice). Advisory.
+- **Air density 1.15 kg/m³.** The app still defaults to 20 °C / 1.204. Setting
+  the temperature to ~35 °C gets there; nothing prompts for it.
+- **Installation notes** — fall to hood ≥2 % (runs ≤23 m) or ≥8 % (>23 m), IMC
+  506.3.7; access at each change of direction, ≤3 m centres, within ~1 m of fan
+  (TR/19, DW/172, NFPA 96 12 ft; AS 1668.1:2015 reportedly 3 m + changes of
+  direction, unverified); no fire dampers; liquid-tight welded joints. These are
+  drawing notes, not calculations.
+
+### Dead code this leaves behind
+
+Nothing now uses the engine's `'velocity'` sizing method: `snapFloor`,
+`selectRectangular`'s `'down'` direction, `ctx.maxFriction` and the
+`velocityCapSource` / `frictionCeiling` outputs are all unreachable from the app.
+They are still covered by tests and still correct; they are simply no longer
+wired to anything.
+
+---
+
+## 11. Consensus pass: AIRAH, CIBSE, ASHRAE (07/11/2026)
+
+The velocity table was finally read against the primary documents — AIRAH Skills
+Workshop sw123 and sw022, and ASHRAE *HVAC Applications* 2023 Ch 49 Tables 8
+and 9. CIBSE remains secondary (Guide B2 is £100 behind a paywall), as do the
+AS 1668 clause numbers.
+
+**Four rows were wrong, and one was wrong against this app's own design basis.**
+
+### AIRAH sw123 Table 1 — the figure that moved things
+
+| Required NR | Riser | Main supply | Branch | Run-out | Return |
+|---|---|---|---|---|---|
+| 50 | 10.0 | 10.0 | 8.0 | 6.0 | 8.0 |
+| 45 | 10.0 | 9.0 | 7.0 | 6.0 | 7.0 |
+| 40 | 10.0 | 8.0 | 7.0 | 5.5 | 7.0 |
+| 35 | 10.0 | 7.5 | 6.5 | 5.0 | 6.5 |
+| 30 | 9.0 | 6.5 | 5.5 | 4.0 | 5.5 |
+
+Three things about it matter more than the numbers:
+
+- It is framed as **absolute maxima, not design recommendations**, and applies
+  only to systems over 1,000 l/s. Nothing else here is framed that way, so where
+  this app exceeded AIRAH it was exceeding a hard limit rather than a target.
+- **The riser column is capped at 10.0 m/s at every NR.** Two rows sat at 12.0.
+- Its lowest row is NR 30. There is no AIRAH figure for a bedroom.
+
+### What changed
+
+| Row | Was | Now | Why |
+|---|---|---|---|
+| Open-plan office, NR 38 | 8.5 / 7.0 / 4.5 | **8.0** / 7.0 / 4.5 | 8.5 exceeded AIRAH's NR 40 absolute maximum (8.0), and NR 38 is the stricter condition |
+| Retail / restaurant, NR 40 | 9.0 / 7.5 / 5.0 | **8.0 / 7.0** / 5.0 | was AIRAH's NR 45 row, not its NR 40 row |
+| Back of house, NR 45+ | 12.0 / 9.0 / 6.0 | **10.0 / 8.0** / 6.0 | 20 % over the AIRAH riser cap and over CIBSE's industrial row; now AIRAH's NR 50 row exactly |
+| Commercial kitchen | 12.0 / 8.0 / 8.0 | **10.0** / 8.0 / 8.0 | above the riser cap, and above the 9 m/s this app's own grease basis allows |
+
+The kitchen row is the one worth dwelling on. The grease system's own 9 m/s cap
+meant grease ducts never saw the space's 12.0 — `min(space, system)` quietly
+masked it. **Make-up air through the same kitchen did see it**, because the
+standard system has no cap of its own. An internal contradiction that only
+surfaced on one of the two paths through the code. Both regression tests added.
+
+Rows 1–3 came back inside the published spread and are unchanged.
+
+### Flexible duct gets a limit back, and this one is sourced
+
+AIRAH sw022 calls it reasonable present-day practice to limit a flexible runout
+to **3.5 m/s**. The per-space flexible entries dropped in §8 were inert and
+unsourced; this is neither, and it binds under most spaces' runout figures —
+retail (5.0), back of house (6.0). Added as a single global cap, attributed to
+whichever limit actually binds so a bedroom runout (2.5) is not blamed on AIRAH.
+
+The same source allows twice the measured length when working out flexible
+friction, which is the same arithmetic as the ×2 "15 % compressed" factor in
+`FLEX_CONDITIONS` over a given run. Not a conflict; worth knowing.
+
+### Confirmed, and left alone
+
+- **1.0 Pa/m is defensible.** It sits between ASHRAE's usual 0.65–0.82 Pa/m and
+  Ahern's 1.2 Pa/m, which AIRAH's own text calls higher than many designers use.
+  At 1.0 the velocity cap only starts to govern around 1,850 l/s for 7.5 m/s and
+  3,700 l/s for 9 m/s — so the caps bind on large mains and little else.
+- **CIBSE Guide B Table 3.4's 5 / 7.5 / 10** is confirmed, but only for the
+  *rectangular* row of "riser or above plasterboard ceiling". Circular gets
+  7 / 10 / 15, and above a *suspended* ceiling it drops to 3 / 5 / 6 — a tighter
+  case this app does not model.
+- **ASHRAE's 1750 / 3000 fpm at RC 35** is confirmed from the primary, which
+  settles §7's round-duct question: the ratio is real, it is Table 8, and it is
+  still not a constant (1.4–1.95 across the table).
+
+### The 80 / 50 role gradation is ASHRAE's, not universal
+
+| Source | Branch ÷ main | Runout ÷ main |
+|---|---|---|
+| ASHRAE | 0.80 (stated rule) | ≤0.50 (stated rule) |
+| AIRAH sw123 | 0.78–0.87 | 0.60–0.69 |
+| CIBSE | 0.78–0.92 | ≈0.47–0.50 |
+| This app | 0.67–0.88 | 0.50–0.67 |
+
+§7 recorded the gradation as "corroborated by ASHRAE". It is corroborated by
+ASHRAE specifically; AIRAH allows runouts 20–35 % faster than the 50 % rule.
+
+### Open, and now narrower
+
+- **CIBSE B2 (2016) Tables 2.17–2.19** — values unread; §2 of the research used
+  Guide B (2005) Tables 3.2–3.5 as the stand-in. Table 2.16's title and first two
+  rows were confirmed to match.
+- **AIRAH DA03** velocity table — paywalled. The reported 10 m/s kitchen minimum
+  is neither confirmed nor refuted; no source found states it.
+- **ASHRAE Fundamentals Ch 21** — unreachable; whether it carries its own
+  velocity table is unknown.
+- **AS 1668.2 and 1668.1 clause text** — paywalled. The absence of an in-duct
+  velocity requirement is consistent across every secondary source but remains
+  absence of evidence. The 2024 edition exists and has renumbered the kitchen
+  clauses, so cl. 5.10.3 is a 2002 reference.
+- **CIBSE B2 Table 2.17** (medium/high-pressure duct, sized by pressure class
+  rather than noise) is not modelled at all. Everything here assumes
+  low-pressure work.
+
+### Restaurants split out of retail
+
+CIBSE bands restaurants with general offices at NR 35–40 (7.5 / 6.0 / 3.5), a
+step below shops, so sharing a row with retail was letting a restaurant main run
+at a shop's velocity. **Restaurant / café / bar** is now its own space at
+7.5 / 6.0 / 4.0 — CIBSE's main and branch for that row, with the runout following
+the office row rather than CIBSE's 3.5, which is tighter than anything else at
+that band (AIRAH's NR 40 runout is 5.5).
+
+The practical difference, on a 4,000 l/s main: restaurant gives Ø900 at 6.3 m/s,
+retail Ø800 at 8.0 m/s.
+
+Adding the eighth space broke the Settings picker. Eight chips overflowed the
+segmented control at phone width — 490 px of content in 360 px — with no scroll,
+so **Back of house and Commercial kitchen became uneditable**, silently. The
+picker is now a select, matching the main page. Worth noting as the second time
+a UI control has quietly stopped reaching part of its data; the first was the
+role picker hidden for flexible duct while the role still drove the limit.
+
+---
+
+## 12. Dust extract added; one sizing mode instead of two
+
+### Dust / fume extract (LEV) is a third system
+
+Equal friction under an ACGIH transport-velocity floor, chosen by material class
+(fume 10 m/s through heavy-or-moist 22.5 m/s, lower bound of each published
+range). Three design decisions worth recording:
+
+- **Transport overrides acoustics.** Every space here caps at 10 m/s or less and
+  every dust class needs more, so deferring to the acoustic limit would make a
+  dust system unsizeable. Practice runs the duct at transport velocity and treats
+  noise separately, because silting the duct is the worse failure. The app flags
+  it as information — the selection is right, the duct will be loud — rather
+  than as a fault or by pretending the acoustic limit held. A test guards the
+  premise, so if a space cap or a class ever moves, this gets revisited.
+- **Flexible is excluded.** LEV uses flexible *hose*, a different product that
+  runs at transport velocity, not the 3.5 m/s AIRAH holds comfort flexible
+  runouts to.
+- **Transport velocity is a property of the material**, not the duct role, so
+  it is one class setting rather than a per-role table.
+
+Unlike the grease minimums, these are genuinely about keeping material airborne.
+RP-1033 concerned grease aerosol condensing on duct walls; a solid particle
+dropping out of an airstream is a different mechanism. The figures came through
+**secondary sources** — the ACGIH manual is paywalled — corroborated only at
+fume, wood and metal turnings.
+
+### The separate constant-velocity sizing mode is gone
+
+`ctx.method === 'velocity'` had 16 branches threaded through `calcSegment`,
+plus `snapFloor`, `selectRectangular`'s `'down'` direction, `ctx.maxFriction`,
+`frictionCeiling` and `velocityCapSource`. Nothing in the app could reach any of
+it once grease moved to equal friction, and dust doesn't need it either: a
+velocity floor on the friction path makes the same selections wherever the
+floor binds.
+
+**That claim was wrong the first time it was made, and the deletion surfaced
+why.** A 9-case check on a fine list showed the two paths identical. A browser
+pass on the *shipped* 50 mm list then found moist dust at 1,500 l/s going to
+**Ø250 at 30.6 m/s, 22 % over the 25 m/s cap**. The band there is 276–291 mm —
+a 5 % diameter range — and holds no listed size. The friction floor clamp always
+came down to the faster side; the deleted `snapFloor` had taken whichever size
+missed by less, which is Ø300 at 21.2 m/s, 6 % under the floor.
+
+The nearest-miss rule is back, as `clampToBand`, used by every path that applies
+a velocity floor — round, rectangular selection, and both override branches.
+Re-checked against the deleted engine pulled from git (`1909846`): **168 of 168
+identical** across both size lists, all six dust classes, seven duties, round
+and rectangular. Worst miss on the shipped list is now 6 %.
+
+Two lessons. A narrow check on a convenient input can prove an equivalence that
+does not hold. And a deletion is only safe once the thing being deleted has
+been compared against on the inputs that actually ship.
+
+### A second bug found on the way
+
+Rewriting the deleted mode's tests onto the friction path exposed one in the
+override branches: with a height pinned, the width was taken as `min(De-width,
+area ceiling)` and then snapped **up**, which overshoots the ceiling. 1,000 l/s
+at a 300 mm height over a 6–8 m/s band came out 600 × 300 at 5.56 m/s. Both
+override branches now clamp the same way the round branch does.
+
+---
+
+## 13. Full sanity check, debug and function pass (07/11/2026)
+
+Four layers, each finding something the others couldn't:
+
+| Pass | Scope | Found |
+|---|---|---|
+| Engine invariant sweep | 4,704 combinations — 8 spaces × 3 systems × 3 roles × 3 shapes × 14 duties × snapped/exact | 1 defect |
+| Edge inputs | NaN, text, negative, huge, empty lists, zero length, sub-list voids | 4 defects |
+| Physics, independently | Swamee-Jain against Colebrook, ISA, Huebscher De table, hand Darcy | clean |
+| Browser function pass | every control, settings, size lists, save/open/delete, CSV, copy, reload, reset | 1 defect |
+| Robustness | corrupt storage, old library entries, offline, 320 px | 4 defects |
+
+**Invariants checked on every combination:** no NaN or negative outputs; every
+snapped size on its list; velocity equals Q/A; segment total equals its parts;
+`ruleMet` never true with the velocity outside its band; `ruleMet` never true
+over the friction target unless the velocity floor overrode it; duct size never
+shrinks as flow rises.
+
+### Defects fixed
+
+**Restoring saved state could silently wipe it.** The worst of the set, and
+introduced during this pass. `let state = load()` runs at module load; moving
+`LEGACY_SPACE` below that line put it in its temporal dead zone, `normaliseState`
+threw, and `load()` — which treated *every* error as "nothing saved" — returned
+defaults. Every stored calculation came back as a fresh open-plan default, with
+nothing logged. All 74 unit tests passed throughout, because none loads
+`app.js`. Fixed by moving the constant; `load()` now treats only unreadable JSON
+as expected and logs anything else; and `test/app-order.test.mjs` fails if any
+top-level constant on the restore path is declared below the state line —
+confirmed by reintroducing the bug.
+
+**A save with the wrong types bricked the app.** `seg.fittings.map is not a
+function` on load, until storage was cleared by hand. Every stored segment is
+now coerced field by field (`sanitiseSegment`).
+
+**Unknown spaces were labelled "Restaurant".** `spaceType()` fell back by array
+*position*, `SPACE_TYPES[3]`, which was open-plan until the restaurant row went
+in above it. All three lookups now fall back by id.
+
+**An old-format saved job opened under the wrong system.** An entry from before
+the space/system split has no `systemTypeId`, so opening it inherited the
+*current* one: a kitchen job came back as A/C·vent with its flexible grease duct
+left in place. It now takes the legacy mapping.
+
+**Zero or trickle flow on exact sizing gave a 0 mm duct**, so NaN in every
+figure — on the round path and both rectangular override paths. Zero flow now
+shows the smallest listed size; anything else is held to at least 1 mm.
+
+**NaN or text airflow ran straight through to NaN.** The app sanitises first,
+but the engine no longer relies on it.
+
+**A ceiling void below the smallest listed height invented one.** 1,000 × 50 mm
+off a list starting at 100 — the same fault as the original Ø100. It now takes
+the deepest listed height that fits, or the smallest listed one, and a new flag
+says the void is breached. There was no flag for that at all before.
+
+**An empty rectangular size list gave `NaN × NaN`.**
+
+**Every Reset stacked another change listener on the space picker**, so after
+three resets each change rendered four times. It now assigns the handler.
+
+### Clean
+
+Colebrook agrees with Swamee-Jain to within 1 % across four regimes; the
+friction factor is continuous through the laminar–turbulent blend; De matches
+the Huebscher table to 2 mm; Darcy matches a hand calculation exactly;
+`diameterForFriction` lands on its target to six figures; friction rate falls
+strictly with diameter, which the sizing bisection depends on. Offline loading
+works from the service worker; nothing overflows at 320 px.
+
+Two "failures" in the physics pass were errors in the check script, not the
+engine — a sea-level object compared against the 1,500 m figure, and a
+misremembered table value for 1200 × 300 (620 mm by hand, as the engine gives).

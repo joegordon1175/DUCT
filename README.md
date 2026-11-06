@@ -54,9 +54,29 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Bedroom / hotel room | NR 25 | 5.0 | 4.0 | 2.5 |
 | Living room / study | NR 30 | 6.0 | 5.0 | 3.0 |
 | Private office / meeting / classroom | NR 35 | 7.5 | 6.0 | 4.0 |
-| Open-plan office | NR 38 | 8.5 | 7.0 | 4.5 |
-| Retail / restaurant / circulation | NR 40 | 9.0 | 7.5 | 5.0 |
-| Toilet / back-of-house / riser / plant | NR 45+ | 12.0 | 9.0 | 6.0 |
+| Restaurant / café / bar | NR 35–40 | 7.5 | 6.0 | 4.0 |
+| Open-plan office | NR 38 | 8.0 | 7.0 | 4.5 |
+| Retail / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
+| Toilet / back-of-house / riser / plant | NR 45+ | 10.0 | 8.0 | 6.0 |
+| Commercial kitchen | NR 45+ | 10.0 | 8.0 | 8.0 |
+
+Reconciled against AIRAH Skills Workshop sw123 Table 1 and ASHRAE *HVAC
+Applications* 2023 Ch 49 Table 8, both read from the primary documents. AIRAH's
+table is framed as **absolute maxima** and caps the riser column at 10.0 m/s at
+every NR, which is what sets the bottom two rows. CIBSE remains secondary —
+Guide B2 is paywalled — so its values are cross-checks, not authority. The full
+working, including what changed and why, is in `docs/CALCULATION-REVIEW.md` §11.
+
+**Flexible duct is capped at 3.5 m/s** on top of all this — AIRAH sw022, which
+calls it reasonable present-day practice. It binds under most spaces' runout
+figures.
+
+Commercial kitchen sits outside that scale deliberately. The duct runs in a space
+where the canopy fans and the appliances already dominate, so the duct isn't what
+anyone hears — and its runout doesn't follow the "half the main" rule the others
+use, because that rule is about a runout feeding a terminal in an occupied room.
+A grease duct leaving the kitchen needs its own acoustic assessment whatever this
+app says, so there's no attempt to model that.
 
 One number per role, not a recommended/maximum pair: there is a single acoustic
 limit, and the app shades the reading amber within 10 % of it rather than asking
@@ -69,14 +89,75 @@ so they are one system rather than three identical ones.
 | System | Sizing method | Why |
 |---|---|---|
 | Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
-| Kitchen grease extract | Constant velocity, as a **minimum** (m/s) | Air slower than the minimum lets grease settle out and foul the duct — a fire risk. Standard sizes snap *down* toward the minimum instead of up, since rounding up would silently drop the velocity below it. |
+| Kitchen grease extract | Constant friction too, under a two-sided velocity check | Sizes to the same target at full design flow, held to 5–9 m/s (DW/172 extract mains 6–9; 5 at the lower bound of its branch range). Aspect ratio held to 2:1. |
+| Dust / fume extract (LEV) | Constant friction, under an ACGIH transport-velocity floor | The floor governs everywhere — 10 to 22.5 m/s by material, far above anything 1 Pa/m produces — and it **overrides the space's acoustic limit**, because every dust class needs more than any space allows. The app says the duct will be loud rather than pretending otherwise. Aspect ratio held to 2:1; flexible excluded, since LEV hose isn't HVAC flexible duct. |
 
-The useful consequence of splitting them: a grease duct's **minimum** comes from
-transport physics and its **maximum** from wherever it runs, so the same duct
-gets 12 m/s of headroom in a riser and 9 m/s where it crosses a restaurant. Pick
-a space whose maximum is below the transport minimum — a grease duct through a
-bedroom — and the app says which two settings are fighting rather than quietly
-picking one.
+**The floor overrides Pa/m on small flows.** Sizing for friction alone goes slack
+long before it goes noisy — at 200 l/s the target gives a duct the air barely
+moves through — so the duct comes back down a size and the friction target is
+what gives. That is design intent, so it reads as an info line, not a warning:
+
+| Duty | Selection | Velocity | Pa/m | |
+|---|---|---|---|---|
+| 100 l/s | Ø150 | 5.7 | 2.88 | floor overrides target |
+| 200 l/s | Ø200 | 6.4 | 2.51 | floor overrides target |
+| 500 l/s | Ø350 | 5.2 | 0.87 | target governs |
+| 2,500 l/s | Ø700 | 6.5 | 0.57 | target governs |
+| 6,000 l/s | Ø1000 | 7.6 | 0.50 | target governs |
+
+**The 5 m/s floor is not a grease-suspension figure.** That reading is pre-2002
+and was overturned: ASHRAE RP-1033 (Kuehn) showed grease deposition *increases*
+with velocity, and NFPA 96 cut its minimum from 1500 fpm (7.6 m/s) to 500 fpm
+(2.54 m/s) by Errata 96-01-01 in January 2002. Any source quoting ≥7.5 m/s "to
+keep grease in suspension" predates that. AS 1668.2-2002 sets no in-duct velocity
+at all — only hood face (Type A capture 0.5 m/s, dishwasher 0.3 m/s) and
+discharge (5 m/s vertical, cl. 5.10.3). There is no code maximum anywhere; the
+US industry norm of 2500 fpm (12.7 m/s) is a noise convention.
+
+The floor is there to stop a small duty producing a duct nothing moves through.
+
+**Dust transport velocity is a different matter from grease.** RP-1033 was
+about grease aerosol condensing on duct walls; a solid particle dropping out of
+an airstream is a different mechanism, and below the ACGIH figures the duct does
+silt up. The material is chosen in Settings:
+
+| Material class | Minimum | Examples |
+|---|---|---|
+| Fumes & very fine | 10.0 | welding fume, zinc and aluminium oxide |
+| Very fine light dust | 12.5 | cotton lint, wood flour |
+| Dry dusts & powders | 15.0 | rubber dust, moulding powder, leather shavings |
+| Average industrial dust | 17.5 | sawdust, grinding dust, silica flour |
+| Heavy dusts | 20.0 | wet sawdust, metal turnings, shot blast |
+| Heavy or moist | 22.5 | moist cement, quicklime, sticky buffing lint |
+
+Each is the lower bound of ACGIH's published range. **These came through
+secondary sources** and the reproductions disagree at the light end; check them
+against the ACGIH manual before specifying. LEV wants a finer size list than the
+shipped 50 mm steps — at 22.5–25 m/s the usable diameter range is only 5 %, so
+the 50 mm list often holds nothing inside it and the app reports the nearer miss.
+
+**The one figure with code force** is 2.54 m/s (500 fpm) at minimum turndown —
+NFPA 96 / IMC 506.3.4 — and it applies at the turndown flow of a VSD or DCKV
+system, not at design duty. Enter a turndown percentage in Settings and the app
+checks there; leave it blank for constant volume.
+
+**Fan duty build-up for grease extract**: duct friction + fittings + dirty baffle
+filters (supplier data, typically 100–150 Pa) + hood entry K 0.5–1.0 + discharge
+velocity pressure or cowl + ~10 % margin. The fittings library carries a dirty
+baffle filter and a canopy hood entry for this.
+
+Not yet modelled, and recorded in `js/data.js`: discharge velocity (≥5 m/s
+vertical, 10+ near sensitive receptors per UK planning practice), hood spigot
+velocity 5–7 m/s, the 1.15 kg/m³ design density (the app still defaults to 20 °C
+and 1.204), and the installation notes — fall to hood ≥2 % up to 23 m and ≥8 %
+beyond (IMC 506.3.7), access at each change of direction and ≤3 m centres, no
+fire dampers, liquid-tight welded joints.
+
+The useful consequence of splitting them: a grease duct's velocity band comes
+from the system and its acoustic cap from wherever it runs, and whichever binds
+first wins. Pick a space whose maximum sits below the system's floor — a grease
+duct through a bedroom — and the app says which two settings are fighting rather
+than quietly picking one.
 
 **There is deliberately no minimum velocity on the air conditioning /
 ventilation system.** Constant friction already picks the smallest duct that
@@ -89,7 +170,7 @@ would be a second constraint saying the same thing.
 |---|---|
 | Airflow | l/s, with ±25 steppers. Shown alongside in m³/h and m³/s. |
 | Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
-| Duct type | Circular, rectangular or flexible. Flexible isn't offered on kitchen grease extract — it's not normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
+| Duct type | Circular, rectangular or flexible. Flexible is locked to the runout role — it's what flexible duct is, and a flexible "main" would otherwise be checked against the main's limit. It isn't offered on kitchen grease extract at all, not being normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
 | Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
@@ -99,9 +180,9 @@ would be a second constraint saying the same thing.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
-duct role — main, branch, runout, and a separate entry for flexible duct — for
-each of the six spaces, editable independently of which space is active on the
-main page; the grease transport minimums by role; air temperature and altitude (drives density and viscosity),
+duct role — main, branch and runout — for each of the eight spaces, editable
+independently of which space is active on the main page; the grease transport
+band and the turndown check; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum
@@ -253,8 +334,9 @@ Guide B Table 3.4, which caps velocity in risers and above ceilings at
 5 / 7.5 / 10 m/s for acoustically critical / normal / non-critical rooms; the NR
 bands interpolate across that range. CIBSE Guide B2 Table 2.16 gives a general
 office 6.0 m/s in the branch, 3.5 in the run-out and 2.5 at the diffuser.
-ASHRAE's acoustic table is more permissive and splits by shape — above a
-suspended acoustic ceiling, RC 35 allows 8.9 m/s rectangular against 15.2 round,
+ASHRAE's acoustic table (Applications 2023 Ch 49 Table 8, read from the primary)
+is more permissive and splits by shape — above a suspended acoustic ceiling,
+RC 35 allows 8.9 m/s rectangular against 15.2 round,
 because flat rectangular walls are mass-controlled and radiate low-frequency
 breakout noise while a round shell is stiffness-controlled and keeps it in.
 
@@ -266,9 +348,15 @@ noise — including air noise regenerated at fittings, which travels inside the
 duct to the terminal and is not attenuated by the duct wall at all. See
 `docs/CALCULATION-REVIEW.md` §7 for the working.
 
-**Every CIBSE and ASHRAE number here reached this app through a secondary
-source** — the originals are paywalled. Check them against the project
-specification before issuing anything.
+**AIRAH and ASHRAE have since been read from the primary documents; CIBSE has
+not** — Guide B2 is paywalled, so its figures here come from reproductions of
+Guide B (2005) Tables 3.2–3.5. Check against the project specification before
+issuing anything.
+
+Note also that CIBSE Guide B Table 3.4's 5 / 7.5 / 10 applies to *rectangular*
+duct in a riser or above a plasterboard ceiling. Circular gets 7 / 10 / 15, and
+above a suspended ceiling it drops to 3 / 5 / 6 — a tighter case this app does
+not model.
 
 The kitchen grease transport minimums are DW/172-style indicative defaults,
 pending confirmation against the specific kitchen and canopy design. Roughness
