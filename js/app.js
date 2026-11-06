@@ -14,8 +14,9 @@ import {
   dustClass,
   FLEX_MAX_VELOCITY,
   FLEX_MAX_FRICTION,
+  LEGACY_FLEX_MAX_FRICTION,
   DEFAULT_FLEX_CONDITION,
-  LEGACY_FLEX_SIZES,
+  LEGACY_FLEX_SIZE_LISTS,
   DEFAULT_FRICTION_TARGET,
   DUCT_ROLES,
   DEFAULT_MATERIAL,
@@ -383,14 +384,16 @@ function normaliseState(parsed) {
   const merged = { ...defaults, ...parsed };
   // Older saves predate the custom size lists, or may only have some shapes set.
   merged.sizeLists = { ...defaults.sizeLists, ...(parsed.sizeLists ?? {}) };
-  // Upgrade an untouched flexible list to gain 100 / 125 / 160; leave an edited
+  // Upgrade an untouched flexible list to the current default; leave an edited
   // one alone, since that was the user's choice.
   const storedFlex = merged.sizeLists.flex;
-  if (Array.isArray(storedFlex) && storedFlex.length === LEGACY_FLEX_SIZES.length &&
-      storedFlex.every((v, i) => v === LEGACY_FLEX_SIZES[i])) {
+  if (Array.isArray(storedFlex) && LEGACY_FLEX_SIZE_LISTS.some((old) =>
+      storedFlex.length === old.length && storedFlex.every((v, i) => v === old[i]))) {
     merged.sizeLists.flex = [...defaults.sizeLists.flex];
   }
-  if (!(Number.isFinite(merged.flexMaxFriction) && merged.flexMaxFriction > 0)) {
+  // An unedited save holds the old 8 Pa/m default: move it to the new one.
+  if (!(Number.isFinite(merged.flexMaxFriction) && merged.flexMaxFriction > 0) ||
+      merged.flexMaxFriction === LEGACY_FLEX_MAX_FRICTION) {
     merged.flexMaxFriction = FLEX_MAX_FRICTION;
   }
   /* -- space / system split -------------------------------------------

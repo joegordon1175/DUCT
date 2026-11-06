@@ -40,15 +40,17 @@ export const DUST_ROUND_SIZES = [
   560, 630, 710, 800, 900, 1000, 1120, 1250,
 ];
 
-/** Flexible duct, 50 mm increments over the range it's normally made in. */
-export const FLEX_SIZES = [
-  100, 125, 150, 160, 200, 250, 300, 350, 400, 450, 500, 550, 600,
-];
+/** Flexible duct, Ø150–550 in 50 mm steps. Below Ø150 is outside the tested
+ * range of the compression correction (ASHRAE Eq. 22). */
+export const FLEX_SIZES = [150, 200, 250, 300, 350, 400, 450, 500, 550];
 
-/** The flexible list before 100 / 125 / 160 were added. A stored list still
- * equal to this was never edited, so it is upgraded on load; one that differs
- * was the user's choice and is left alone. */
-export const LEGACY_FLEX_SIZES = [150, 200, 250, 300, 350, 400, 450, 500, 550, 600];
+/** Earlier default flexible lists. A stored list still equal to one of these
+ * was never edited, so it is upgraded on load; one that differs was the user's
+ * choice and is left alone. */
+export const LEGACY_FLEX_SIZE_LISTS = [
+  [150, 200, 250, 300, 350, 400, 450, 500, 550, 600],
+  [100, 125, 150, 160, 200, 250, 300, 350, 400, 450, 500, 550, 600],
+];
 
 /** Rectangular duct on the usual 50 mm modular increments. */
 export const RECT_SIZES = [
@@ -501,16 +503,19 @@ export const FLEX_MAX_VELOCITY = 3.5;
  * whatever compression or product you assume, and only the reported loss moves.
  *
  * This ceiling is the backstop for where velocity alone lets pressure run away —
- * small, long or crushed runs. With the measured compression correction a
- * Ø150 runout at 60 l/s and 15 % runs ~11 Pa/m, a 3 m run 33 Pa: more than the
- * grille it feeds. At 8 Pa/m that goes up to Ø160 at 7.7 Pa/m. That moves a
- * small runout off the size commonly installed, deliberately: a tool that gets
- * fan duty right should not keep a size that loses more than its terminal.
+ * small, long or crushed runs. With the compression correction (ASHRAE Eq. 22)
+ * Ø200 at 100 l/s and 15 % runs ~4.1 Pa/m, a 3 m runout ~12 Pa; a Ø150 at
+ * 60 l/s ~8.2 Pa/m. At 4 Pa/m both step up a size, which keeps a compressed
+ * runout's loss to roughly a grille's and limits the imbalance between
+ * terminals that compressed small flex causes.
  *
- * 8 Pa/m is this app's own figure, picked from a sweep of sizes, compression and
- * material — not a published one. Tune it in Settings.
+ * 4 Pa/m is this app's own figure (user's choice; it was 8 until 07/11/2026),
+ * not a published one. Tune it in Settings.
  */
-export const FLEX_MAX_FRICTION = 8.0;
+export const FLEX_MAX_FRICTION = 4.0;
+
+/** The previous default ceiling. A save still holding it was never edited. */
+export const LEGACY_FLEX_MAX_FRICTION = 8.0;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },
