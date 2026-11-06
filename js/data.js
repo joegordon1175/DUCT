@@ -311,7 +311,87 @@ export const SYSTEM_TYPES = [
     /** Design air density, kg/m³ — roughly 35 °C, not 20 °C room air. */
     designDensity: 1.15,
   },
+  {
+    id: 'dust',
+    name: 'Dust / fume extract (LEV)',
+    short: 'Dust',
+    useCase: 'Local exhaust ventilation — woodworking, grinding, fume',
+    /**
+     * Equal friction with a transport-velocity floor, like the other systems.
+     * A separate constant-velocity sizing mode is unnecessary: wherever the
+     * floor binds the two produce identical selections, and at ACGIH transport
+     * velocities (10–22.5 m/s) the floor binds everywhere — a 1 Pa/m target
+     * never produces anything near that fast.
+     */
+    sizingMethod: 'friction',
+    /**
+     * Flexible duct is excluded. LEV uses flexible HOSE, which is a different
+     * product from HVAC flexible duct: it runs at transport velocity, not the
+     * 3.5 m/s that `FLEX_MAX_VELOCITY` holds comfort runouts to. Offering it
+     * here would produce a contradiction the app would then have to explain.
+     */
+    allowsFlexible: false,
+    /** Set from the dust class — see `DUST_CLASSES`. The default is average. */
+    minVelocity: 17.5,
+    /**
+     * Erosion and energy, not noise. ACGIH gives no maximum; above roughly
+     * this, abrasive dust starts eating elbows and the fan power stops being
+     * worth it.
+     */
+    maxVelocity: 25.0,
+    /**
+     * The transport minimum OVERRIDES the space's acoustic maximum.
+     *
+     * Every space here caps at 10 m/s or less, and every dust class needs more
+     * than that, so without this a dust system could never be sized at all.
+     * That is not a modelling fudge: in practice an LEV duct runs at transport
+     * velocity and the noise is dealt with separately, because silting the duct
+     * up is the worse failure. The app says plainly that the duct will be loud
+     * rather than pretending the acoustic limit was met.
+     */
+    transportGoverns: true,
+    /** Round or square strongly preferred — corners collect dust. */
+    maxAspect: 2,
+  },
 ];
+
+/**
+ * Minimum transport velocity by dust class, m/s — ACGIH *Industrial Ventilation:
+ * A Manual of Recommended Practice*, the classic design-velocity table.
+ *
+ * This is the one place a minimum velocity really is about keeping material
+ * airborne, and it is NOT what ASHRAE RP-1033 overturned — that was grease
+ * aerosol condensing on duct walls, a different mechanism from a solid particle
+ * dropping out of an airstream. Fall below these and the duct silts up.
+ *
+ * READ BEFORE USE: these came through SECONDARY sources. The ACGIH manual is
+ * paywalled, and the reproductions disagree at the light end — one puts light
+ * dust at 2,000–2,500 fpm against the 3,000 fpm here. Corroborated at three
+ * points only: welding fume ~2,000–2,500 fpm, wood/sawdust ~3,500 fpm, metal
+ * turnings ~4,500 fpm. Check against the manual before specifying.
+ *
+ * Each figure is the LOWER bound of the published range, which is what
+ * "minimum transport velocity" means. ACGIH and ASHRAE are both reported to
+ * suggest designing 10–15 % above it.
+ */
+export const DUST_CLASSES = [
+  { id: 'fume', name: 'Fumes & very fine', minVelocity: 10.0,
+    examples: 'Welding and soldering fume, zinc and aluminium oxide' },
+  { id: 'light', name: 'Very fine light dust', minVelocity: 12.5,
+    examples: 'Cotton lint, wood flour, litho powder' },
+  { id: 'dry', name: 'Dry dusts & powders', minVelocity: 15.0,
+    examples: 'Fine rubber dust, moulding powder, jute lint, soap, leather shavings' },
+  { id: 'average', name: 'Average industrial dust', minVelocity: 17.5,
+    examples: 'Sawdust, grinding dust, coffee, silica flour, brick cutting, limestone' },
+  { id: 'heavy', name: 'Heavy dusts', minVelocity: 20.0,
+    examples: 'Wet sawdust, metal turnings, shot blast, lead dust, cast iron borings' },
+  { id: 'moist', name: 'Heavy or moist', minVelocity: 22.5,
+    examples: 'Moist cement, quicklime, sticky buffing lint, lead with chips' },
+];
+
+export function dustClass(id) {
+  return DUST_CLASSES.find((c) => c.id === id) ?? DUST_CLASSES[3];
+}
 
 /** Project-wide friction target, Pa/m — the main driver of duct size. */
 export const DEFAULT_FRICTION_TARGET = 1.0;

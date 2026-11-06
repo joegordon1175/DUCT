@@ -10,6 +10,8 @@ import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from 
 import {
   SPACE_TYPES,
   SYSTEM_TYPES,
+  DUST_CLASSES,
+  dustClass,
   FLEX_MAX_VELOCITY,
   DEFAULT_FRICTION_TARGET,
   DUCT_ROLES,
@@ -56,6 +58,9 @@ const DEFAULT_GREASE_MIN_VELOCITY = systemType('grease').minVelocity;
 const DEFAULT_GREASE_MAX_VELOCITY = systemType('grease').maxVelocity;
 /** NFPA 96 / IMC 506.3.4, 500 fpm — checked at turndown, not design flow. */
 const DEFAULT_TURNDOWN_VELOCITY = systemType('grease').minVelocityTurndown;
+
+/** Dust transport velocity comes from the material, not the duct role. */
+const DEFAULT_DUST_CLASS = 'average';
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -214,6 +219,7 @@ function defaultState() {
     greaseMinVelocity: DEFAULT_GREASE_MIN_VELOCITY,
     greaseMaxVelocity: DEFAULT_GREASE_MAX_VELOCITY,
     turndownVelocity: DEFAULT_TURNDOWN_VELOCITY,
+    dustClassId: DEFAULT_DUST_CLASS,
     // % of design flow at minimum turndown; 0 = constant volume, no check.
     turndownPct: 0,
     segments: [newSegment()],
@@ -247,9 +253,12 @@ function maxVelocityFor(spaceId, roleKey) {
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
-/** Velocity floor for a system, m/s, or 0 where it has none. Grease only. */
+/** Velocity floor for a system, m/s, or 0 where it has none. */
 function minVelocityFor(systemId) {
   if (!(minVelocity(systemId) > 0)) return 0;
+  // Dust transport velocity is a property of the material being conveyed, so
+  // it comes from the chosen class rather than a single editable figure.
+  if (systemId === 'dust') return dustClass(state.dustClassId).minVelocity;
   const v = state.greaseMinVelocity;
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_GREASE_MIN_VELOCITY;
 }
@@ -257,6 +266,7 @@ function minVelocityFor(systemId) {
 /** A system's own velocity ceiling, m/s, or Infinity where it has none. */
 function systemMaxVelocityFor(systemId) {
   if (!(systemType(systemId).maxVelocity > 0)) return Infinity;
+  if (systemId === 'dust') return systemType('dust').maxVelocity;
   const v = state.greaseMaxVelocity;
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_GREASE_MAX_VELOCITY;
 }
@@ -271,13 +281,25 @@ function systemMaxVelocityFor(systemId) {
  * most spaces' runout figures.
  */
 function limitsFor(spaceId, systemId, roleKey, shape) {
+  const min = minVelocityFor(systemId);
+  const acoustic = Math.min(
+    maxVelocityFor(spaceId, roleKey),
+    shape === 'flexible' ? FLEX_MAX_VELOCITY : Infinity
+  );
+  const systemMax = systemMaxVelocityFor(systemId);
+
+  // On an LEV system the transport minimum wins. Every space here caps at
+  // 10 m/s or less and every dust class needs more, so deferring to the
+  // acoustic limit would make a dust system unsizeable. Practice runs the duct
+  // at transport velocity and treats the noise separately, because silting the
+  // duct up is the worse failure — the UI says so rather than quietly
+  // pretending the acoustic limit held.
+  const transportGoverns = systemType(systemId).transportGoverns === true && min > acoustic;
   return {
-    min: minVelocityFor(systemId),
-    max: Math.min(
-      maxVelocityFor(spaceId, roleKey),
-      systemMaxVelocityFor(systemId),
-      shape === 'flexible' ? FLEX_MAX_VELOCITY : Infinity
-    ),
+    min,
+    max: transportGoverns ? systemMax : Math.min(acoustic, systemMax),
+    transportGoverns,
+    acousticMax: acoustic,
   };
 }
 
@@ -362,6 +384,7 @@ function normaliseState(parsed) {
     if (!(Number.isFinite(merged[key]) && merged[key] > 0)) merged[key] = def;
   }
   if (!Number.isFinite(merged.turndownPct) || merged.turndownPct < 0) merged.turndownPct = 0;
+  if (!DUST_CLASSES.some((c) => c.id === merged.dustClassId)) merged.dustClassId = DEFAULT_DUST_CLASS;
   // Old recommended/max pairs keyed to the retired space buckets.
   delete merged.velocityLimits;
 
@@ -874,6 +897,27 @@ function renderSettingsTargets() {
   $('#settings-grease-max').value = systemMaxVelocityFor('grease');
   $('#settings-turndown-pct').value = state.turndownPct || '';
   $('#settings-turndown-velocity').value = num(state.turndownVelocity, DEFAULT_TURNDOWN_VELOCITY);
+
+  /* -- dust class, which sets the LEV transport velocity -------------- */
+  const dustPicker = $('#settings-dust-class');
+  dustPicker.replaceChildren(
+    ...DUST_CLASSES.map((c) =>
+      el('option', {
+        value: c.id,
+        text: `${c.name} — ${fmt(c.minVelocity, 1)} m/s`,
+        selected: c.id === state.dustClassId,
+      })
+    )
+  );
+  dustPicker.value = state.dustClassId;
+  dustPicker.onchange = (e) => {
+    // Ignore anything that is not a known class rather than persisting it.
+    if (!DUST_CLASSES.some((c) => c.id === e.target.value)) return;
+    state.dustClassId = e.target.value;
+    renderSettingsTargets();
+    update();
+  };
+  $('#settings-dust-examples').textContent = dustClass(state.dustClassId).examples;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1340,9 +1384,13 @@ function update() {
       seg.shape === 'flexible' && Math.abs(ctx.limits.max - FLEX_MAX_VELOCITY) < 1e-9
         ? 'flexible duct, AIRAH'
         : `${space.short.toLowerCase()}, ${space.nr}`;
-    $('.js-limit-hint', card).textContent = ctx.limits.min > 0
-      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s at design flow (${capBy})`
-      : `${roleLabel}: max ${fmt(ctx.limits.max, 1)} m/s — ${capBy}`;
+    $('.js-limit-hint', card).textContent = ctx.limits.transportGoverns
+      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s — ` +
+        `${dustClass(state.dustClassId).name.toLowerCase()} transport velocity governs, ` +
+        `above the ${fmt(ctx.limits.acousticMax, 1)} m/s acoustic limit for ${space.short.toLowerCase()}`
+      : ctx.limits.min > 0
+        ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s at design flow (${capBy})`
+        : `${roleLabel}: max ${fmt(ctx.limits.max, 1)} m/s — ${capBy}`;
 
     $$('.js-fit-loss', card).forEach((node) => {
       const fit = result.fittings[Number(node.dataset.i)];
@@ -1381,6 +1429,16 @@ function update() {
   const flags = [];
   for (const { seg, ctx, result } of results) {
     const i = state.segments.indexOf(seg) + 1;
+    // Said once per segment, as information rather than a fault: the duct is
+    // sized correctly, it will just be loud, and that is a separate problem.
+    if (ctx.limits.transportGoverns && result.velocity > ctx.limits.acousticMax) {
+      flags.push({
+        level: 'info',
+        text: `Seg ${i}: ${fmt(result.velocity, 1)} m/s — transport velocity governs over the ` +
+          `${fmt(ctx.limits.acousticMax, 1)} m/s acoustic limit. Expect a noisy duct; treat it ` +
+          `separately (lagging, silencer, routing) rather than slowing the air.`,
+      });
+    }
     if (ctx.limits.min > ctx.limits.max) {
       // Contradictory setup: a grease duct through an acoustically tight space,
       // where the transport minimum sits above the space's noise ceiling. No
@@ -1538,7 +1596,10 @@ function update() {
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
   const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main', 'circular');
-  $('#space-hint').textContent = isGrease
+  $('#space-hint').textContent = system.id === 'dust'
+    ? `${dustClass(state.dustClassId).name} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
+      `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s transport velocity, which governs over the acoustic limit`
+    : isGrease
     ? `${space.useCase} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s at design flow, floor overrides Pa/m on small flows`
     : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`;
@@ -1561,7 +1622,9 @@ function summaryText() {
   const methodLine =
     systemType(state.systemTypeId).sizingMethod === 'friction'
       ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`
-      : `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m, held to ${fmt(minVelocityFor(state.systemTypeId), 1)}–${fmt(systemMaxVelocityFor(state.systemTypeId), 1)} m/s`;
+      : state.systemTypeId === 'dust'
+        ? `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m, ${dustClass(state.dustClassId).name.toLowerCase()} transport ${fmt(minVelocityFor('dust'), 1)} m/s minimum`
+        : `constant friction, target ${fmt(frictionTarget(), 1)} Pa/m, held to ${fmt(minVelocityFor(state.systemTypeId), 1)}–${fmt(systemMaxVelocityFor(state.systemTypeId), 1)} m/s`;
   const lines = [
     `DUCT — ${state.project || 'Untitled'}`,
     `${space.name} (${space.nr}) · ${systemType(state.systemTypeId).name} · ${methodLine}`,

@@ -851,3 +851,67 @@ so **Back of house and Commercial kitchen became uneditable**, silently. The
 picker is now a select, matching the main page. Worth noting as the second time
 a UI control has quietly stopped reaching part of its data; the first was the
 role picker hidden for flexible duct while the role still drove the limit.
+
+---
+
+## 12. Dust extract added; one sizing mode instead of two
+
+### Dust / fume extract (LEV) is a third system
+
+Equal friction under an ACGIH transport-velocity floor, chosen by material class
+(fume 10 m/s through heavy-or-moist 22.5 m/s, lower bound of each published
+range). Three design decisions worth recording:
+
+- **Transport overrides acoustics.** Every space here caps at 10 m/s or less and
+  every dust class needs more, so deferring to the acoustic limit would make a
+  dust system unsizeable. Practice runs the duct at transport velocity and treats
+  noise separately, because silting the duct is the worse failure. The app flags
+  it as information — the selection is right, the duct will be loud — rather
+  than as a fault or by pretending the acoustic limit held. A test guards the
+  premise, so if a space cap or a class ever moves, this gets revisited.
+- **Flexible is excluded.** LEV uses flexible *hose*, a different product that
+  runs at transport velocity, not the 3.5 m/s AIRAH holds comfort flexible
+  runouts to.
+- **Transport velocity is a property of the material**, not the duct role, so
+  it is one class setting rather than a per-role table.
+
+Unlike the grease minimums, these are genuinely about keeping material airborne.
+RP-1033 concerned grease aerosol condensing on duct walls; a solid particle
+dropping out of an airstream is a different mechanism. The figures came through
+**secondary sources** — the ACGIH manual is paywalled — corroborated only at
+fume, wood and metal turnings.
+
+### The separate constant-velocity sizing mode is gone
+
+`ctx.method === 'velocity'` had 16 branches threaded through `calcSegment`,
+plus `snapFloor`, `selectRectangular`'s `'down'` direction, `ctx.maxFriction`,
+`frictionCeiling` and `velocityCapSource`. Nothing in the app could reach any of
+it once grease moved to equal friction, and dust doesn't need it either: a
+velocity floor on the friction path makes the same selections wherever the
+floor binds.
+
+**That claim was wrong the first time it was made, and the deletion surfaced
+why.** A 9-case check on a fine list showed the two paths identical. A browser
+pass on the *shipped* 50 mm list then found moist dust at 1,500 l/s going to
+**Ø250 at 30.6 m/s, 22 % over the 25 m/s cap**. The band there is 276–291 mm —
+a 5 % diameter range — and holds no listed size. The friction floor clamp always
+came down to the faster side; the deleted `snapFloor` had taken whichever size
+missed by less, which is Ø300 at 21.2 m/s, 6 % under the floor.
+
+The nearest-miss rule is back, as `clampToBand`, used by every path that applies
+a velocity floor — round, rectangular selection, and both override branches.
+Re-checked against the deleted engine pulled from git (`1909846`): **168 of 168
+identical** across both size lists, all six dust classes, seven duties, round
+and rectangular. Worst miss on the shipped list is now 6 %.
+
+Two lessons. A narrow check on a convenient input can prove an equivalence that
+does not hold. And a deletion is only safe once the thing being deleted has
+been compared against on the inputs that actually ship.
+
+### A second bug found on the way
+
+Rewriting the deleted mode's tests onto the friction path exposed one in the
+override branches: with a height pinned, the width was taken as `min(De-width,
+area ceiling)` and then snapped **up**, which overshoots the ceiling. 1,000 l/s
+at a 300 mm height over a 6–8 m/s band came out 600 × 300 at 5.56 m/s. Both
+override branches now clamp the same way the round branch does.

@@ -12,10 +12,11 @@
  *   - ASHRAE circular equivalent diameter for rectangular duct, sized on
  *     "equal friction, equal flow".
  *   - Loss-coefficient (velocity-pressure) method for fittings.
- *   - Two sizing modes: "ceiling" (constant friction rate; velocity is only
- *     ever checked, never sized to) and "floor" (constant velocity sized to
- *     a MINIMUM, e.g. kitchen grease extract, where standard sizes snap down
- *     instead of up so the built duct can't fall below the target).
+ *   - Constant friction sizing, with an optional velocity FLOOR that overrides
+ *     the friction target where sizing for Pa/m alone would leave the air too
+ *     slack. On a transport system — grease, dust — that floor governs almost
+ *     everywhere, which is what makes a separate constant-velocity mode
+ *     unnecessary: the two produce identical selections wherever the floor binds.
  */
 
 export const R_AIR = 287.055; // J/(kg·K), dry air
@@ -239,62 +240,52 @@ export function snapDown(value, list) {
   return Math.max(50, Math.floor(value / 50) * 50);
 }
 
+
 /**
- * Standard size for "floor" sizing, where the target velocity is a minimum to
- * hold rather than a maximum not to exceed — kitchen grease extract, sized so
- * material stays entrained. Snapping *up* (the normal rule) would silently drop
- * the actual velocity below the target, defeating the point of sizing on
- * velocity at all.
+ * Bring a friction-sized dimension back inside a velocity band.
  *
- * `idealMax` is the diameter (or width) at the target minimum velocity and
- * `floorMin` the one at the max-velocity cap, so [floorMin, idealMax] is the
- * band satisfying both. Normally the largest listed size at or below `idealMax`
- * lands inside it.
+ * `size` is what the friction target asked for; `lo` is the smallest dimension
+ * the velocity CAP allows and `hi` the largest the velocity FLOOR allows. If
+ * `size` already sits at or under `hi` the floor isn't breached and it stands.
+ * Otherwise come down to the largest listed size under `hi`, provided that
+ * still respects the cap.
  *
- * When the list skips the band entirely neither candidate is valid, and the only
- * choice left is which limit to breach. A fixed priority is wrong in both
- * directions: on a coarse list, holding the velocity cap can mean jumping to
- * nearly double the diameter (6.3 m/s against a 7.5 m/s minimum), while holding
- * the minimum can mean running at 25 m/s. Pick whichever sits closer to the
- * band instead, as a ratio — velocity goes as 1/d² for round duct and 1/w at a
- * fixed height, so the smaller ratio is the smaller velocity excursion either
- * way. Whichever is picked, `calcSegment` reports the rule as unmet.
+ * When the band holds no listed size at all — common for LEV on a 50 mm list,
+ * where 22.5–25 m/s is only a 5 % diameter range — neither neighbour is valid,
+ * and always taking the smaller one is wrong: moist dust at 1,500 l/s went to
+ * Ø250 at 30.6 m/s, 22 % over the cap, when Ø300 missed the floor by 6 %. Take
+ * whichever misses by less, as a ratio — velocity goes as 1/d² round and 1/w
+ * at a fixed height, so the smaller ratio is the smaller velocity excursion
+ * either way. `calcSegment` reports the miss; the size list is the real fix.
  */
-export function snapFloor(idealMax, floorMin, list) {
-  const down = snapDown(idealMax, list);
-  if (down >= floorMin - 1e-9 && down <= idealMax + 1e-9) return down;
-  const up = snapUp(floorMin, list);
-  // `down` clamped up past the band: the duty is below everything listed, so
-  // the smallest listed size is the only answer and `up` already is it.
-  if (down > idealMax + 1e-9) return up;
-  const tooSmallBy = down > 0 ? floorMin / down : Infinity;
-  const tooBigBy = idealMax > 0 ? up / idealMax : Infinity;
-  return tooSmallBy <= tooBigBy ? down : up;
+export function clampToBand(size, lo, hi, list) {
+  if (!Number.isFinite(hi) || size <= hi + 1e-9) return size;
+  const down = snapDown(hi, list);
+  if (down >= lo - 1e-9) return down;
+  const up = snapUp(lo, list);
+  const tooFast = down > 0 ? lo / down : Infinity;
+  const tooSlow = hi > 0 ? up / hi : Infinity;
+  return tooFast <= tooSlow ? down : up;
 }
 
 /**
  * Choose a rectangular width × height, preferring aspect ratios near
  * `preferredAspect` and never exceeding `maxAspect`.
  *
- * The two sizing modes constrain *different quantities*, which is why the
- * width is solved differently in each:
+ * Width comes from the required equivalent diameter and is snapped up, then
+ * bounded by the area ceiling. The two bounds constrain different quantities
+ * and that distinction matters: `requiredDeMm` is an equal-*friction* diameter,
+ * while a velocity limit is an AREA limit, because velocity is Q/(w·h). A
+ * rectangular duct matching a round duct's De always has more area than it
+ * (more perimeter per unit area, hence more friction), so sizing a velocity
+ * bound on De systematically oversizes and undershoots the velocity. Pass the
+ * area directly.
  *
- *   'up' (default, friction target) — the constraint is the equivalent
- *   diameter, so the width comes from `requiredDeMm` and is snapped up.
- *
- *   'down' (velocity floor) — the constraint is AREA, not De. Velocity is
- *   Q/(w·h), so a minimum velocity is a maximum area. De is an equal-*friction*
- *   diameter: a rectangular duct matching a round duct's De always has more
- *   area than it (more perimeter per unit area, hence more friction), so
- *   sizing on De here systematically oversizes and drops the velocity below
- *   the minimum it was meant to hold. Pass the area band instead.
- *
- * @param {number} requiredDeMm  equivalent diameter target — 'up' mode only
+ * @param {number} requiredDeMm  equivalent diameter target
  * @param {number} minAreaMm2    smallest allowed face area (area at max velocity)
  * @param {object} opts
- *   @param {'up'|'down'} [opts.direction]
  *   @param {number} [opts.maxAreaMm2] largest allowed face area (area at the
- *     minimum velocity) — required in 'down' mode, ignored in 'up' mode.
+ *     minimum velocity), or Infinity where there is no velocity floor
  * @returns {{width:number, height:number}} mm
  */
 export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
@@ -302,27 +293,19 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
     preferredAspect = 1.5,
     maxAspect = 4,
     maxHeightMm = Infinity,
-    direction = 'up',
     maxAreaMm2 = Infinity,
   } = opts;
 
   const pickWidth = (h) => {
-    if (direction === 'down') {
-      // Widths that keep the face area inside [minArea, maxArea] for this height.
-      const wUpper = Number.isFinite(maxAreaMm2) ? maxAreaMm2 / h : Infinity;
-      const wLower = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
-      return snapFloor(wUpper, wLower, sizes);
-    }
     const wExact = widthForEquivalentDiameter(h, requiredDeMm);
     const wForArea = minAreaMm2 > 0 ? minAreaMm2 / h : 0;
     const w = snapUp(Math.max(wExact, wForArea), sizes);
     // A velocity FLOOR is an area ceiling, and it overrides the friction
     // target: a duct sized for Pa/m alone can fall below the minimum velocity
-    // on a small flow, so come back down a size where that happens.
-    if (Number.isFinite(maxAreaMm2) && w * h > maxAreaMm2 + 1e-6) {
-      return snapDown(maxAreaMm2 / h, sizes);
-    }
-    return w;
+    // on a small flow, so come back down — by the nearest-miss rule if the
+    // band holds no listed width.
+    const wCeiling = Number.isFinite(maxAreaMm2) ? maxAreaMm2 / h : Infinity;
+    return clampToBand(w, wForArea, wCeiling, sizes);
   };
 
   let best = null;
@@ -335,8 +318,7 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
 
     const area = w * h;
     // A candidate is only valid if it lands in the area band — otherwise it
-    // silently breaches the velocity it was sized to. This applies in both
-    // directions: an area ceiling is a minimum velocity either way.
+    // silently breaches the minimum velocity the area ceiling stands for.
     const overBand = Number.isFinite(maxAreaMm2) && area > maxAreaMm2 + 1e-6;
     if (overBand) {
       // Keep the one that misses by least, in case the list holds nothing
@@ -488,7 +470,6 @@ export function calcSegment(seg, ctx) {
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
-  const floorSizing = ctx.method === 'velocity'; // target is a minimum, not a ceiling
 
   const heightOverride = positive(seg.heightMm);
   const widthOverride = rectangular ? positive(seg.widthMm) : null;
@@ -500,48 +481,23 @@ export function calcSegment(seg, ctx) {
   // Inflating the roughness instead would be a different model entirely —
   // roughness only enters logarithmically, so it under-sizes badly (a 4x
   // factor came out ~2.4x over target).
-  const dFriction = floorSizing
-    ? 0
-    : diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
-  const dTargetVel = floorSizing ? diameterForVelocity(flow, ctx.targetVelocity) : 0;
+  const dFriction = diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
 
-  // The minimum velocity to hold, whichever mode is in play. In floor mode it
-  // IS the sizing target; in friction mode it is a floor that overrides the
-  // friction target on small flows, where sizing for Pa/m alone would leave the
-  // duct too big and the air too slow.
-  const minVelocity = floorSizing
-    ? Math.max(ctx.targetVelocity ?? 0, 0)
-    : Math.max(ctx.minVelocity ?? 0, 0);
+  // The minimum velocity the duct must hold. It overrides the friction target
+  // on small flows, where sizing for Pa/m alone would leave the duct too big
+  // and the air too slack — and on a transport system (grease, dust) it is the
+  // governing figure almost everywhere.
+  const minVelocity = Math.max(ctx.minVelocity ?? 0, 0);
   const dMinVelocity = minVelocity > 0 ? diameterForVelocity(flow, minVelocity) : Infinity;
 
-  // A Pa/m ceiling is a minimum diameter, and at a fixed flow a minimum
-  // diameter is a maximum velocity — so convert it and take whichever cap binds
-  // first. Doing it here means the whole of the sizing below, round and
-  // rectangular alike, needs no further knowledge of it.
-  const frictionCeiling = floorSizing ? Math.max(ctx.maxFriction ?? 0, 0) : 0;
-  const dFrictionCap =
-    frictionCeiling > 0 ? diameterForFriction(flow, frictionCeiling, roughness, air) : 0;
-  const velocityAtFrictionCap =
-    dFrictionCap > 0 ? flow / ((Math.PI * dFrictionCap * dFrictionCap) / 4) : Infinity;
-  const maxVelocity =
-    ctx.maxVelocity > 0 ? Math.min(ctx.maxVelocity, velocityAtFrictionCap) : velocityAtFrictionCap;
-  // Which constraint actually set the ceiling, for the UI to name.
-  const capSource =
-    Number.isFinite(velocityAtFrictionCap) && velocityAtFrictionCap < (ctx.maxVelocity ?? Infinity)
-      ? 'friction'
-      : 'noise';
-
+  const maxVelocity = ctx.maxVelocity > 0 ? ctx.maxVelocity : Infinity;
   const dMaxVel = diameterForVelocity(flow, maxVelocity);
-  // In floor mode dTargetVel (diameter at the slower, minimum velocity) is the
-  // larger of the two and so already wins this max() — requiredD lands on the
-  // loose end of the valid [dMaxVel, dTargetVel] diameter range, exactly the
-  // ceiling that snapFloor below must not snap past.
-  const requiredD = Math.max(dFriction, dTargetVel, dMaxVel); // m
+  const requiredD = Math.max(dFriction, dMaxVel); // m
   const minArea = maxVelocity > 0 ? flow / maxVelocity : 0; // m²
-  // Floor mode constrains AREA, not equivalent diameter — velocity is Q/A, so
-  // the minimum velocity is a maximum area. Rectangular sizing must use this
-  // rather than requiredD, which (being an equal-friction diameter) maps to a
-  // larger area for a rectangular duct and would undershoot the velocity.
+  // A minimum velocity is a maximum AREA, not a maximum equivalent diameter —
+  // velocity is Q/A. Rectangular sizing has to use this rather than requiredD,
+  // which (being an equal-friction diameter) maps to a larger area for a
+  // rectangular duct and would undershoot the velocity.
   const maxArea = minVelocity > 0 ? flow / minVelocity : Infinity; // m²
 
   // --- pick dimensions ---------------------------------------------------
@@ -556,36 +512,35 @@ export function calcSegment(seg, ctx) {
       sizedBy = 'both overridden';
     } else if (heightOverride) {
       heightMm = heightOverride;
-      // Floor mode: the other dimension is bounded by the area band. Ceiling
-      // mode: by the equivalent diameter, with the area only as a floor.
+      // The width has to be at least `wNeeded` (equivalent diameter, and the
+      // area floor that the velocity cap sets) and at most `wCeiling` (the area
+      // ceiling that the velocity floor sets). Snapping up from the lower bound
+      // can overshoot the upper one, so come back down when it does — the same
+      // clamp the round branch applies.
       const wCeiling = Number.isFinite(maxArea) ? (maxArea * 1e6) / heightMm : Infinity;
-      const wUpper = floorSizing
-        ? wCeiling
-        : Math.min(widthForEquivalentDiameter(heightMm, requiredD * 1000), wCeiling);
-      const wLower = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
+      const wNeeded = Math.max(
+        widthForEquivalentDiameter(heightMm, requiredD * 1000),
+        minArea > 0 ? (minArea * 1e6) / heightMm : 0
+      );
+      const wCap = minArea > 0 ? (minArea * 1e6) / heightMm : 0;
       if (!useStandard) {
-        // Round to a fabricable whole mm in whichever direction stays safe:
-        // up for a ceiling target, down for a floor (minimum-velocity) one.
-        widthMm = floorSizing ? Math.floor(wUpper) : Math.ceil(Math.max(wUpper, wLower));
-      } else if (floorSizing) {
-        widthMm = snapFloor(wUpper, wLower, sizes);
+        widthMm = Math.min(Math.ceil(wNeeded), Math.floor(wCeiling));
       } else {
-        widthMm = snapUp(Math.max(wUpper, wLower), sizes);
+        widthMm = clampToBand(snapUp(wNeeded, sizes), wCap, wCeiling, sizes);
       }
       sizedBy = 'height overridden';
     } else if (widthOverride) {
       widthMm = widthOverride;
       const hCeiling = Number.isFinite(maxArea) ? (maxArea * 1e6) / widthMm : Infinity;
-      const hUpper = floorSizing
-        ? hCeiling
-        : Math.min(widthForEquivalentDiameter(widthMm, requiredD * 1000), hCeiling); // symmetric
-      const hLower = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
+      const hNeeded = Math.max(
+        widthForEquivalentDiameter(widthMm, requiredD * 1000), // symmetric
+        minArea > 0 ? (minArea * 1e6) / widthMm : 0
+      );
+      const hCap = minArea > 0 ? (minArea * 1e6) / widthMm : 0;
       if (!useStandard) {
-        heightMm = floorSizing ? Math.floor(hUpper) : Math.ceil(Math.max(hUpper, hLower));
-      } else if (floorSizing) {
-        heightMm = snapFloor(hUpper, hLower, sizes);
+        heightMm = Math.min(Math.ceil(hNeeded), Math.floor(hCeiling));
       } else {
-        heightMm = snapUp(Math.max(hUpper, hLower), sizes);
+        heightMm = clampToBand(snapUp(hNeeded, sizes), hCap, hCeiling, sizes);
       }
       sizedBy = 'width overridden';
     } else {
@@ -593,7 +548,6 @@ export function calcSegment(seg, ctx) {
         preferredAspect: ctx.preferredAspect,
         maxAspect: ctx.maxAspect,
         maxHeightMm: ctx.maxHeightMm,
-        direction: floorSizing ? 'down' : 'up',
         maxAreaMm2: Number.isFinite(maxArea) ? maxArea * 1e6 : Infinity,
       });
       widthMm = picked.width;
@@ -604,17 +558,10 @@ export function calcSegment(seg, ctx) {
       heightMm = heightOverride;
       sizedBy = 'diameter overridden';
     } else if (!useStandard) {
-      heightMm = floorSizing
-        ? Math.floor(requiredD * 1000)
-        : Math.min(Math.ceil(requiredD * 1000), Math.floor(dMinVelocity * 1000));
-    } else if (floorSizing) {
-      heightMm = snapFloor(requiredD * 1000, dMaxVel * 1000, sizes);
+      heightMm = Math.min(Math.ceil(requiredD * 1000), Math.floor(dMinVelocity * 1000));
     } else {
-      heightMm = snapUp(requiredD * 1000, sizes);
       // Velocity floor overrides the friction target on small flows.
-      if (Number.isFinite(dMinVelocity) && heightMm > dMinVelocity * 1000 + 1e-9) {
-        heightMm = snapDown(dMinVelocity * 1000, sizes);
-      }
+      heightMm = clampToBand(snapUp(requiredD * 1000, sizes), dMaxVel * 1000, dMinVelocity * 1000, sizes);
     }
   }
 
@@ -653,9 +600,7 @@ export function calcSegment(seg, ctx) {
   const tol = 1.001;
   const overMax = maxVelocity > 0 && hyd.velocity > maxVelocity * tol;
   const underMin = minVelocity > 0 && hyd.velocity < minVelocity / tol;
-  const overFriction = floorSizing
-    ? frictionCeiling > 0 && frictionRate > frictionCeiling * tol
-    : ctx.targetFriction > 0 && frictionRate > ctx.targetFriction * tol;
+  const overFriction = ctx.targetFriction > 0 && frictionRate > ctx.targetFriction * tol;
 
   // Exceeding the friction target BECAUSE the velocity floor overrode it is the
   // design intent, not a failure to size. The test is tight: sizing on friction
@@ -663,7 +608,7 @@ export function calcSegment(seg, ctx) {
   // under the target — so a rate above the target on an automatically sized duct
   // means something forced it smaller, and the floor is the only thing that does.
   const floorOverrodeFriction =
-    !floorSizing && minVelocity > 0 && sizedBy === 'calculated' && hyd.velocity >= minVelocity / tol;
+    minVelocity > 0 && sizedBy === 'calculated' && hyd.velocity >= minVelocity / tol;
   const ruleMet = !(overMax || underMin || (overFriction && !floorOverrodeFriction));
 
   // --- geometry extras ---------------------------------------------------
@@ -706,10 +651,6 @@ export function calcSegment(seg, ctx) {
     sizeLimited: !ruleMet && sizedBy === 'calculated',
     maxVelocityApplied: Number.isFinite(maxVelocity) ? maxVelocity : 0,
     minVelocityApplied: minVelocity,
-    // 'friction' when the Pa/m ceiling bound the duct before the acoustic
-    // limit did — the UI names the right one rather than blaming noise.
-    velocityCapSource: capSource,
-    frictionCeiling,
     exceedsMaxVelocity: overMax,
     belowMinVelocity: underMin,
     exceedsFrictionTarget: overFriction,

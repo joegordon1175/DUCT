@@ -14,7 +14,7 @@
    worker — `cache: 'reload'` cannot reach that. Changing this file is what
    produces a new worker, and the reload wired up in app.js hangs off that. */
 
-const CACHE_VERSION = 'v14';
+const CACHE_VERSION = 'v15';
 const CACHE = `duct-${CACHE_VERSION}`;
 
 const ASSETS = [

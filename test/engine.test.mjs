@@ -13,8 +13,8 @@ import {
   diameterForVelocity,
   snapUp,
   snapDown,
-  snapFloor,
   selectRectangular,
+  clampToBand,
   leakageRate,
   pressureClass,
   pressureClassDependsOnSign,
@@ -32,6 +32,8 @@ import {
   maxVelocity,
   minVelocity,
   systemType,
+  DUST_CLASSES,
+  dustClass,
   spaceType,
 } from '../js/data.js';
 
@@ -195,7 +197,6 @@ test('the snap helpers never leave the list', () => {
   assert.equal(snapUp(99999, SNAP_LIST), 500);
   assert.equal(snapDown(50, SNAP_LIST), 100, 'below the list, clamps to the smallest size');
   assert.equal(snapDown(1, SNAP_LIST), 100);
-  assert.equal(snapFloor(80, 60, SNAP_LIST), 100, 'and through snapFloor too');
   // Only an empty list has nothing to clamp to.
   assert.equal(snapUp(260, []), 300);
   assert.equal(snapDown(260, []), 250);
@@ -205,27 +206,6 @@ test('snapDown picks the previous size at or below the value', () => {
   assert.equal(snapDown(299, SNAP_LIST), 250);
   assert.equal(snapDown(300, SNAP_LIST), 300, 'an exact match is used as-is');
   assert.equal(snapDown(399, SNAP_LIST), 300);
-});
-
-test('snapFloor stays within the [floorMin, idealMax] range', () => {
-  // Sizes available between the bounds — picks the largest ≤ idealMax.
-  assert.equal(snapFloor(380, 200, SNAP_LIST), 300);
-  // idealMax itself is in the list — used exactly.
-  assert.equal(snapFloor(300, 200, SNAP_LIST), 300);
-});
-
-test('snapFloor picks the nearer limit when the list skips the band', () => {
-  // Neither candidate is valid, so the only question is which limit to breach
-  // by less. A fixed priority gets this wrong in both directions.
-  //
-  // Band [310, 320] on [200, 500]: 200 is 1.55x under the cap diameter, 500 is
-  // 1.56x over the ideal — almost a tie, and 200 wins by a hair.
-  assert.equal(snapFloor(320, 310, [200, 500]), 200);
-  // Band [400, 550] on a coarse list: 300 would run ~3x the intended velocity,
-  // while 600 sits just 9 % over the ideal diameter. Take 600.
-  assert.equal(snapFloor(550, 400, [150, 300, 600, 900]), 600);
-  // Band [160, 450]: 150 misses the cap by 7 %, 500 misses the ideal by 11 %.
-  assert.equal(snapFloor(450, 160, [150, 500]), 150);
 });
 
 test('rectangular selection respects the aspect limit and area floor', () => {
@@ -244,18 +224,15 @@ test('rectangular selection honours a ceiling void height limit', () => {
   assert.ok(equivalentDiameter(picked.width, picked.height) >= 457);
 });
 
-test('rectangular floor-mode selection lands inside the area band', () => {
-  // Floor mode is constrained by AREA, not equivalent diameter — velocity is
-  // Q/(w·h). An earlier version of this test asserted De instead, which
+test('rectangular selection lands inside the area band', () => {
+  // A velocity limit is constrained by AREA, not equivalent diameter — velocity
+  // is Q/(w·h). An earlier version of this test asserted De instead, which
   // encoded the bug: a rectangular duct matching a round duct's De has more
   // area than it, so De-based sizing undershot the minimum velocity.
   // 500 l/s over a 6–8 m/s band: area must be within [62 500, 83 333] mm².
   const minArea = (0.5 / 8) * 1e6;
   const maxArea = (0.5 / 6) * 1e6;
-  const picked = selectRectangular(0, minArea, RECT_SIZES, {
-    direction: 'down',
-    maxAreaMm2: maxArea,
-  });
+  const picked = selectRectangular(0, minArea, RECT_SIZES, { maxAreaMm2: maxArea });
   const area = picked.width * picked.height;
   assert.ok(
     area >= minArea - 1e-6 && area <= maxArea + 1e-6,
@@ -263,13 +240,16 @@ test('rectangular floor-mode selection lands inside the area band', () => {
   );
 });
 
-test('rectangular floor sizing holds the velocity band across realistic duties', () => {
+test('rectangular sizing holds a velocity band across realistic duties', () => {
   // Regression for the De-vs-area bug: with a 6–8 m/s band this used to land
-  // at 5.71 m/s — below the minimum — for most flows.
+  // at 5.71 m/s — below the minimum — for most flows. Written against the
+  // friction path with a velocity floor, which is what replaced the separate
+  // constant-velocity mode; the floor binds throughout, so the selections are
+  // the ones the old mode made.
   for (const lps of [250, 500, 1000, 2000, 4000]) {
     const r = calcSegment(
       { airflowLps: lps, shape: 'rectangular', lengthM: 10 },
-      ctx({ method: 'velocity', targetVelocity: 6, maxVelocity: 8 })
+      ctx({ minVelocity: 6, maxVelocity: 8 })
     );
     assert.ok(
       r.velocity >= 6 - 1e-6 && r.velocity <= 8 + 1e-6,
@@ -278,10 +258,10 @@ test('rectangular floor sizing holds the velocity band across realistic duties',
   }
 });
 
-test('rectangular floor sizing respects a height override and the band', () => {
+test('rectangular sizing respects a height override and the velocity band', () => {
   const r = calcSegment(
     { airflowLps: 1000, shape: 'rectangular', lengthM: 10, heightMm: 300 },
-    ctx({ method: 'velocity', targetVelocity: 6, maxVelocity: 8 })
+    ctx({ minVelocity: 6, maxVelocity: 8 })
   );
   assert.equal(r.heightMm, 300, 'height held');
   assert.ok(
@@ -404,7 +384,7 @@ test('naive snap-up would violate a minimum transport velocity — the bug floor
 test('floor-mode circular sizing snaps down and holds the minimum velocity', () => {
   const r = calcSegment(
     { airflowLps: 300, shape: 'circular', lengthM: 5 },
-    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+    ctx({ minVelocity: 10, maxVelocity: 20 })
   );
   assert.equal(r.heightMm, 180, 'snaps DOWN to Ø180, not up to Ø200');
   assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
@@ -414,7 +394,7 @@ test('floor-mode circular sizing snaps down and holds the minimum velocity', () 
 test('floor-mode rectangular auto-select holds the minimum velocity', () => {
   const r = calcSegment(
     { airflowLps: 300, shape: 'rectangular', lengthM: 5 },
-    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+    ctx({ minVelocity: 10, maxVelocity: 20 })
   );
   assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
   assert.ok(r.velocity <= 20 + 1e-6, `velocity ${r.velocity} must respect the 20 m/s cap`);
@@ -423,7 +403,7 @@ test('floor-mode rectangular auto-select holds the minimum velocity', () => {
 test('floor-mode rectangular height override solves a width that holds the minimum velocity', () => {
   const r = calcSegment(
     { airflowLps: 300, shape: 'rectangular', lengthM: 5, heightMm: 150 },
-    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20 })
+    ctx({ minVelocity: 10, maxVelocity: 20 })
   );
   assert.equal(r.heightMm, 150, 'height held');
   assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
@@ -437,7 +417,7 @@ test('floor-mode sizing without standard sizes rounds the diameter down, not up'
   // velocity below its target.
   const r = calcSegment(
     { airflowLps: 300, shape: 'circular', lengthM: 5 },
-    ctx({ method: 'velocity', targetVelocity: 10, maxVelocity: 20, useStandardSizes: false })
+    ctx({ minVelocity: 10, maxVelocity: 20, useStandardSizes: false })
   );
   close(r.heightMm, 195, 0.5, 'floors the exact 195.44 mm diameter to 195 mm');
   assert.ok(r.velocity >= 10 - 1e-6, `velocity ${r.velocity} must not fall below the 10 m/s minimum`);
@@ -584,7 +564,7 @@ test('a duty the size list cannot serve is reported, not met with an unlisted si
   // an ordinary small-canopy duty. Previously this fabricated a Ø100 round and a
   // 50 mm wide rectangular duct, unflagged, and made the selection
   // non-monotonic: more airflow gave a bigger duct and a LOWER velocity.
-  const velCtx = ctx({ method: 'velocity', targetVelocity: 7.5, maxVelocity: 12 });
+  const velCtx = ctx({ minVelocity: 7.5, maxVelocity: 12 });
   let lastVelocity = 0;
   for (const airflowLps of [5, 10, 15, 20, 23]) {
     const r = calcSegment({ airflowLps, shape: 'circular', lengthM: 5 }, velCtx);
@@ -751,23 +731,86 @@ test('every grease band is workable in the commercial kitchen', () => {
   }
 });
 
-test('only kitchen grease extract carries a minimum velocity', () => {
+test('only the transport systems carry a minimum velocity', () => {
   // Constant friction already picks the smallest duct that holds the target, so
-  // a friction system needs no floor — a second constraint saying the same
-  // thing. Grease transport is the one case where the minimum is physical.
+  // an air conditioning / ventilation system needs no floor. Grease and dust do,
+  // for different reasons: grease to stop a small duct going slack, dust to keep
+  // solid material airborne.
   for (const system of SYSTEM_TYPES) {
-    assert.equal(minVelocity(system.id) > 0, system.id === 'grease', system.id);
+    assert.equal(
+      minVelocity(system.id) > 0,
+      system.id === 'grease' || system.id === 'dust',
+      system.id
+    );
   }
-  // Both systems size on equal friction now. Grease moved off constant velocity
-  // when the design basis did: ASHRAE RP-1033 showed grease deposition INCREASES
-  // with velocity, and NFPA 96 cut its minimum from 7.6 to 2.54 m/s in 2002.
-  assert.equal(systemType('standard').sizingMethod, 'friction');
-  assert.equal(systemType('grease').sizingMethod, 'friction');
+  // Every system sizes on equal friction. Grease moved off constant velocity
+  // when the design basis did, and dust never needed it: wherever the floor
+  // binds, friction + floor makes the selections constant velocity would.
+  for (const system of SYSTEM_TYPES) assert.equal(system.sizingMethod, 'friction', system.id);
   assert.equal(systemType('grease').allowsFlexible, false, 'no flex on grease extract');
+  assert.equal(systemType('dust').allowsFlexible, false, 'LEV hose is not HVAC flexible duct');
   // The grease SYSTEM and the commercial-kitchen SPACE must not share an id:
   // they are different lookups and a typo between them would read silently.
   assert.ok(SYSTEM_TYPES.every((x) => x.id !== 'kitchen'));
   assert.equal(spaceType('kitchen').id, 'kitchen');
+});
+
+test('a narrow velocity band on a coarse list takes the nearer miss', () => {
+  // Regression: moist dust (22.5–25 m/s, a 5 % diameter range) at 1,500 l/s on
+  // a 50 mm list. The band 276–291 mm holds no size. Always coming down to the
+  // faster side gave Ø250 at 30.6 m/s — 22 % over the cap — when Ø300 misses
+  // the floor by 6 %.
+  const COARSE = [150, 200, 250, 300, 350, 400, 450, 500];
+  const r = calcSegment(
+    { airflowLps: 1500, shape: 'circular', lengthM: 10 },
+    ctx({ minVelocity: 22.5, maxVelocity: 25, roundSizes: COARSE })
+  );
+  assert.equal(r.heightMm, 300);
+  assert.ok(r.velocity < 25, `${r.velocity.toFixed(1)} m/s must not blow through the cap`);
+  assert.equal(r.belowMinVelocity, true, 'the miss is reported, not hidden');
+  // And the helper directly: in band, under the floor, and both misses.
+  assert.equal(clampToBand(400, 200, 450, COARSE), 400, 'floor not breached: stands');
+  assert.equal(clampToBand(500, 200, 450, COARSE), 450, 'in band: largest under the floor');
+  assert.equal(clampToBand(500, 276, 291, COARSE), 300, 'no size in band: nearer miss');
+});
+
+test('dust classes rise with the difficulty of the material', () => {
+  for (let i = 1; i < DUST_CLASSES.length; i++) {
+    assert.ok(
+      DUST_CLASSES[i].minVelocity > DUST_CLASSES[i - 1].minVelocity,
+      `${DUST_CLASSES[i].id} must need more than ${DUST_CLASSES[i - 1].id}`
+    );
+  }
+  assert.equal(dustClass('nonsense').id, 'average', 'unknown falls back to average');
+});
+
+test('every dust class exceeds every acoustic limit, which is why transport governs', () => {
+  // Without transportGoverns no dust system could be sized at all. Guard the
+  // premise so that if a space cap or a class ever moves, this gets revisited
+  // rather than silently half-working.
+  const loosestSpace = Math.max(...SPACE_TYPES.map((sp) => maxVelocity(sp.id, 'main')));
+  const gentlestDust = Math.min(...DUST_CLASSES.map((c) => c.minVelocity));
+  assert.ok(gentlestDust >= loosestSpace, `${gentlestDust} vs ${loosestSpace}`);
+  assert.equal(systemType('dust').transportGoverns, true);
+  assert.ok(systemType('dust').maxVelocity > Math.max(...DUST_CLASSES.map((c) => c.minVelocity)));
+});
+
+test('a dust duct is sized to its transport velocity, not to the friction target', () => {
+  // At 17.5 m/s the floor binds on every duty; 1 Pa/m never comes close.
+  // (Not 200 l/s on this list: its 101–121 mm band holds no listed size, so it
+  // lands on Ø100 at 25.5 m/s — 2 % over the cap rather than 7 % under the
+  // minimum at Ø125. That is the right bias for dust, where a silted duct is
+  // worse than some erosion, but it is a list-granularity case, not this one.)
+  for (const airflowLps of [300, 800, 3000]) {
+    const r = calcSegment(
+      { airflowLps, shape: 'circular', lengthM: 10 },
+      ctx({ minVelocity: 17.5, maxVelocity: 25, roundSizes: TEST_ROUND })
+    );
+    assert.ok(r.velocity >= 17.5 / 1.001, `${airflowLps} l/s -> ${r.velocity.toFixed(1)} m/s`);
+    assert.ok(r.velocity <= 25 * 1.001);
+    assert.equal(r.velocityFloorOverrode, true, 'the floor, not the target, chose this size');
+    assert.equal(r.ruleMet, true, 'and that is a correct selection, not a failure');
+  }
 });
 
 test('no space carries a flexible-duct velocity entry any more', () => {

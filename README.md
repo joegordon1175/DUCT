@@ -90,6 +90,7 @@ so they are one system rather than three identical ones.
 |---|---|---|
 | Air conditioning / ventilation | Constant friction rate (Pa/m) | Standard design. Velocity is only ever checked afterwards against the space's maximum, never sized to. |
 | Kitchen grease extract | Constant friction too, under a two-sided velocity check | Sizes to the same target at full design flow, held to 5–9 m/s (DW/172 extract mains 6–9; 5 at the lower bound of its branch range). Aspect ratio held to 2:1. |
+| Dust / fume extract (LEV) | Constant friction, under an ACGIH transport-velocity floor | The floor governs everywhere — 10 to 22.5 m/s by material, far above anything 1 Pa/m produces — and it **overrides the space's acoustic limit**, because every dust class needs more than any space allows. The app says the duct will be loud rather than pretending otherwise. Aspect ratio held to 2:1; flexible excluded, since LEV hose isn't HVAC flexible duct. |
 
 **The floor overrides Pa/m on small flows.** Sizing for friction alone goes slack
 long before it goes noisy — at 200 l/s the target gives a duct the air barely
@@ -114,6 +115,26 @@ discharge (5 m/s vertical, cl. 5.10.3). There is no code maximum anywhere; the
 US industry norm of 2500 fpm (12.7 m/s) is a noise convention.
 
 The floor is there to stop a small duty producing a duct nothing moves through.
+
+**Dust transport velocity is a different matter from grease.** RP-1033 was
+about grease aerosol condensing on duct walls; a solid particle dropping out of
+an airstream is a different mechanism, and below the ACGIH figures the duct does
+silt up. The material is chosen in Settings:
+
+| Material class | Minimum | Examples |
+|---|---|---|
+| Fumes & very fine | 10.0 | welding fume, zinc and aluminium oxide |
+| Very fine light dust | 12.5 | cotton lint, wood flour |
+| Dry dusts & powders | 15.0 | rubber dust, moulding powder, leather shavings |
+| Average industrial dust | 17.5 | sawdust, grinding dust, silica flour |
+| Heavy dusts | 20.0 | wet sawdust, metal turnings, shot blast |
+| Heavy or moist | 22.5 | moist cement, quicklime, sticky buffing lint |
+
+Each is the lower bound of ACGIH's published range. **These came through
+secondary sources** and the reproductions disagree at the light end; check them
+against the ACGIH manual before specifying. LEV wants a finer size list than the
+shipped 50 mm steps — at 22.5–25 m/s the usable diameter range is only 5 %, so
+the 50 mm list often holds nothing inside it and the app reports the nearer miss.
 
 **The one figure with code force** is 2.54 m/s (500 fpm) at minimum turndown —
 NFPA 96 / IMC 506.3.4 — and it applies at the turndown flow of a VSD or DCKV
