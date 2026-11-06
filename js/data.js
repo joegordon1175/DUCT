@@ -21,10 +21,34 @@ export const ROUND_SIZES = [
   1200, 1300, 1400,
 ];
 
+/**
+ * Circular duct for dust / fume extract (LEV) — the EN 1506 preferred-number
+ * series, which is what LEV and spiral suppliers actually stock.
+ *
+ * LEV needs a finer list than general ventilation, and by a lot. A transport
+ * band like 22.5–25 m/s spans only ~5 % in diameter, so 50 mm steps usually
+ * hold nothing inside it. Across 270 dust duties (all six material classes,
+ * 50–8,000 l/s), the 50 mm list left 45 % with no size in their band; this
+ * series leaves 14 %, and the worst miss falls from 87 % to 29 %. Adding 150
+ * and 300 to it — common in some LEV ranges — changes almost nothing (14 %).
+ *
+ * Rectangular dust duct still uses the shared rectangular list: it is rare on
+ * LEV, held to 2:1, and corners collect dust anyway.
+ */
+export const DUST_ROUND_SIZES = [
+  63, 80, 100, 125, 140, 160, 180, 200, 224, 250, 280, 315, 355, 400, 450, 500,
+  560, 630, 710, 800, 900, 1000, 1120, 1250,
+];
+
 /** Flexible duct, 50 mm increments over the range it's normally made in. */
 export const FLEX_SIZES = [
-  150, 200, 250, 300, 350, 400, 450, 500, 550, 600,
+  100, 125, 150, 160, 200, 250, 300, 350, 400, 450, 500, 550, 600,
 ];
+
+/** The flexible list before 100 / 125 / 160 were added. A stored list still
+ * equal to this was never edited, so it is upgraded on load; one that differs
+ * was the user's choice and is left alone. */
+export const LEGACY_FLEX_SIZES = [150, 200, 250, 300, 350, 400, 450, 500, 550, 600];
 
 /** Rectangular duct on the usual 50 mm modular increments. */
 export const RECT_SIZES = [
@@ -46,22 +70,43 @@ export const MATERIALS = [
   { id: 'lined', name: 'Acoustically lined (fibrous liner)', roughnessMm: 1.5, shapes: ['circular', 'rectangular'] },
   { id: 'concrete', name: 'Concrete / builders work', roughnessMm: 3.0, shapes: ['rectangular'] },
   { id: 'flex_metal', name: 'Flexible, metallic', roughnessMm: 1.2, shapes: ['flexible'] },
-  { id: 'flex_nonmetal', name: 'Flexible, non-metallic', roughnessMm: 3.0, shapes: ['flexible'] },
-  { id: 'flex_insulated', name: 'Flexible, insulated', roughnessMm: 3.0, shapes: ['flexible'] },
+  // Non-metallic flex is entered at its STRETCHED roughness. The compression
+  // penalty is applied separately by flexCompressionFactor (ASHRAE Eq. 22), whose
+  // baseline is stretched duct — ASHRAE "medium rough", 0.9 mm (recalled category
+  // value, not read from the Handbook). Measured stretched flex sits at or below
+  // this (LBNL 10–35 % below; Weaver & Culp ±2 % of sheet metal), so it is mildly
+  // conservative. The old 3 mm double-counted the compression penalty.
+  { id: 'flex_nonmetal', name: 'Flexible, non-metallic', roughnessMm: 0.9, shapes: ['flexible'] },
+  { id: 'flex_insulated', name: 'Flexible, insulated', roughnessMm: 0.9, shapes: ['flexible'] },
 ];
 
 export const DEFAULT_MATERIAL = { circular: 'galv', rectangular: 'galv', flexible: 'flex_insulated' };
 
 /**
- * Flexible duct is only as good as its installation. Compression raises the
- * friction rate sharply (ASHRAE: ~15 % compression roughly doubles the loss,
- * ~30 % roughly quadruples it).
+ * Flexible duct is only as good as its installation. Each option is a
+ * longitudinal compression ratio, turned into a pressure-drop correction by the
+ * diameter-dependent `flexCompressionFactor` (ASHRAE Eq. 22) in engine.js.
+ *
+ * Two options, deliberately:
+ *   Typical 15 % — the default and the design basis. LBNL's "moderate
+ *          compression typical of field installation" ("normal stretch"); a
+ *          little conservative against the 10 % measured field average (LBNL,
+ *          ACEEE 2002), so a separate 10 % option added nothing.
+ *   Tight 4 % — only where flex is specified "fully extended, cut to length"
+ *          AND checked on site. ACCA treats <=4 % as fully extended.
+ * A 30 % "poor install" option was dropped: it describes a defect, not a
+ * design condition. Older saves on 10 % or 30 % load as Typical 15 %.
+ *
+ * The previous options were a flat x2 at 15 % and x4 at 30 % for every
+ * diameter — roughly half what LBNL measured, and size-independent where the
+ * measurements show small duct suffering far more.
  */
 export const FLEX_CONDITIONS = [
-  { id: 'extended', name: 'Fully extended', factor: 1.0 },
-  { id: 'c15', name: '15 % compressed', factor: 2.0 },
-  { id: 'c30', name: '30 % compressed', factor: 4.0 },
+  { id: 'c04', name: 'Tight 4 %', compression: 0.04 },
+  { id: 'c15', name: 'Typical 15 %', compression: 0.15 },
 ];
+
+export const DEFAULT_FLEX_CONDITION = 'c15';
 
 /* ------------------------------------------------------------------ *
  * Space types, system types & duct roles
@@ -199,6 +244,39 @@ export const SPACE_TYPES = [
     // over both. 10.0 / 8.0 / 6.0 is AIRAH's NR 50 row exactly. ASHRAE would
     // allow far more (17.8 m/s rectangular in a shaft at RC 45), but only
     // ASHRAE does, and only for that location.
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
+  },
+  {
+    // Where LEV lives, the way a commercial kitchen is where grease extract
+    // lives. Before this, a dust system had to borrow "back of house", which
+    // describes a riser or a WC rather than a workshop.
+    //
+    // The numbers match back of house because the published limits run out
+    // here: AIRAH caps the riser column at 10.0 m/s at every NR and its top row
+    // (NR 50) is 10.0 / 8.0 / 6.0; CIBSE's industrial row (NR 45–55) is
+    // 10.0 / 8.0 / 5.0. Nothing published goes looser. The row exists so the
+    // space is named correctly and can be tuned on its own.
+    //
+    // A dust duct still runs above these — transport velocity governs on an
+    // LEV system — so in practice this cap bites on general ventilation in the
+    // workshop, not on the dust extract.
+    id: 'workshop',
+    name: 'Workshop / factory / process',
+    short: 'Workshop',
+    useCase: 'Workshops, factories and process areas — where LEV runs',
+    nr: 'NR 50+',
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
+  },
+  {
+    // Large, hard, already noisy, rarely occupied for long. Same ceiling as the
+    // workshop for the same reason: the published tables plateau at AIRAH's
+    // 10 m/s riser cap above NR 45. AS 1668.2 governs car park ventilation
+    // RATES, not in-duct velocity.
+    id: 'carpark',
+    name: 'Car park / loading dock',
+    short: 'Car park',
+    useCase: 'Car parks, loading docks, service yards',
+    nr: 'NR 55+',
     roles: { main: 10.0, branch: 8.0, runout: 6.0 },
   },
   {
@@ -411,6 +489,28 @@ export const DEFAULT_FRICTION_TARGET = 1.0;
  * the "15 % compressed" x2 on rate over a given run.
  */
 export const FLEX_MAX_VELOCITY = 3.5;
+
+/**
+ * Friction CEILING for flexible duct, Pa/m, on the compressed rate.
+ *
+ * Flexible duct is sized on velocity — the 3.5 m/s cap above, or the space's
+ * runout limit if lower — because a single Pa/m target fits it badly: friction
+ * per metre climbs steeply as the duct gets smaller, and sizing on it makes the
+ * selected size swing with the compression assumed, which is rarely known at
+ * design stage. Velocity sizing does not swing: the duct you pick is the same
+ * whatever compression or product you assume, and only the reported loss moves.
+ *
+ * This ceiling is the backstop for where velocity alone lets pressure run away —
+ * small, long or crushed runs. With the measured compression correction a
+ * Ø150 runout at 60 l/s and 15 % runs ~11 Pa/m, a 3 m run 33 Pa: more than the
+ * grille it feeds. At 8 Pa/m that goes up to Ø160 at 7.7 Pa/m. That moves a
+ * small runout off the size commonly installed, deliberately: a tool that gets
+ * fan duty right should not keep a size that loses more than its terminal.
+ *
+ * 8 Pa/m is this app's own figure, picked from a sweep of sizes, compression and
+ * material — not a published one. Tune it in Settings.
+ */
+export const FLEX_MAX_FRICTION = 8.0;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },

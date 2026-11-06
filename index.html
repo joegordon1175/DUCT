@@ -210,6 +210,18 @@
       </div>
     </div>
 
+    <div class="field">
+      <label class="label" for="settings-flex-max-friction">Flexible duct friction ceiling</label>
+      <div class="input-unit">
+        <input id="settings-flex-max-friction" type="number" inputmode="decimal" step="0.5" min="0.5" max="30">
+        <span class="unit">Pa/m</span>
+      </div>
+      <p class="hint">Flexible duct sizes on velocity (3.5 m/s, or the space's runout limit if
+      lower), not on the target above, so the size doesn't swing with how compressed you assume
+      it will be. This ceiling — on the <em>compressed</em> rate — is the backstop for small,
+      long or crushed runs, where velocity alone would let the loss run away.</p>
+    </div>
+
     <div class="field-label-row">
       <span class="label">Maximum velocity by space</span>
       <button class="text-btn" type="button" id="settings-reset-targets">Reset all</button>
@@ -307,7 +319,7 @@
 
     <div class="field">
       <div class="field-label-row">
-        <span class="label">Circular</span>
+        <span class="label">Circular — general</span>
         <button class="text-btn" type="button" data-reset-sizes="round">Reset</button>
       </div>
       <div class="chip-row" id="sizes-round-chips" role="list" aria-label="Standard circular duct sizes in millimetres"></div>
@@ -329,6 +341,22 @@
         <button class="chip-add-btn" type="button" id="sizes-rect-add-btn">Add</button>
       </div>
       <p class="hint sizes-error" id="sizes-rect-error" role="alert"></p>
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <span class="label">Circular — dust / fume extract</span>
+        <button class="text-btn" type="button" data-reset-sizes="dust">Reset</button>
+      </div>
+      <p class="hint">Used instead of the circular list above whenever the system is dust
+      extract. Defaults to the EN 1506 series: an LEV transport band is only ~5 % wide in
+      diameter, so 50 mm steps usually hold no size inside it.</p>
+      <div class="chip-row" id="sizes-dust-chips" role="list" aria-label="Standard dust extract duct sizes in millimetres"></div>
+      <div class="chip-add">
+        <input id="sizes-dust-add" type="number" inputmode="decimal" min="1" step="1" placeholder="Add size" aria-label="Add a dust extract duct size in millimetres">
+        <button class="chip-add-btn" type="button" id="sizes-dust-add-btn">Add</button>
+      </div>
+      <p class="hint sizes-error" id="sizes-dust-error" role="alert"></p>
     </div>
 
     <div class="field">

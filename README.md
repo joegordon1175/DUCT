@@ -58,6 +58,8 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Open-plan office | NR 38 | 8.0 | 7.0 | 4.5 |
 | Retail / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
 | Toilet / back-of-house / riser / plant | NR 45+ | 10.0 | 8.0 | 6.0 |
+| Workshop / factory / process | NR 50+ | 10.0 | 8.0 | 6.0 |
+| Car park / loading dock | NR 55+ | 10.0 | 8.0 | 6.0 |
 | Commercial kitchen | NR 45+ | 10.0 | 8.0 | 8.0 |
 
 Reconciled against AIRAH Skills Workshop sw123 Table 1 and ASHRAE *HVAC
@@ -67,9 +69,20 @@ every NR, which is what sets the bottom two rows. CIBSE remains secondary —
 Guide B2 is paywalled — so its values are cross-checks, not authority. The full
 working, including what changed and why, is in `docs/CALCULATION-REVIEW.md` §11.
 
-**Flexible duct is capped at 3.5 m/s** on top of all this — AIRAH sw022, which
-calls it reasonable present-day practice. It binds under most spaces' runout
-figures.
+**Flexible duct is sized on velocity, not friction**: 3.5 m/s (AIRAH sw022,
+"reasonable present-day practice"), or the space's runout limit if that is
+lower. Flex runouts are short, so a high Pa/m costs little in absolute terms,
+and holding compressed flex to 1 Pa/m oversized it badly. An **8 Pa/m friction
+ceiling** on the compressed rate (Settings) is the backstop: it upsizes small,
+long or crushed flex where velocity alone would leave a real pressure penalty —
+e.g. 60 l/s at 15 % goes Ø150 → Ø160.
+
+Above NR 45 the published limits plateau — AIRAH caps the riser column at
+10 m/s at every NR — so back of house, workshop and car park share figures. They
+are separate rows so the space is named correctly and can be tuned on its own.
+**Workshop / factory / process** is where dust extract lives, as Commercial
+kitchen is where grease extract lives; pick either system on a different space
+and the hint says where it usually runs, without switching it for you.
 
 Commercial kitchen sits outside that scale deliberately. The duct runs in a space
 where the canopy fans and the appliances already dominate, so the duct isn't what
@@ -132,9 +145,12 @@ silt up. The material is chosen in Settings:
 
 Each is the lower bound of ACGIH's published range. **These came through
 secondary sources** and the reproductions disagree at the light end; check them
-against the ACGIH manual before specifying. LEV wants a finer size list than the
-shipped 50 mm steps — at 22.5–25 m/s the usable diameter range is only 5 %, so
-the 50 mm list often holds nothing inside it and the app reports the nearer miss.
+against the ACGIH manual before specifying. Dust extract has **its own circular size list**, defaulting to the EN 1506
+series (63, 80, 100, 125, 140, 160, 180, 200, 224, 250, 280, 315 …). It's needed:
+an LEV transport band like 22.5–25 m/s spans only ~5 % in diameter, so 50 mm
+steps usually hold nothing inside it. Across 270 dust duties the general 50 mm
+list left 45 % with no size in their band; EN 1506 leaves 14 %. Edit it in
+Settings to match what your LEV supplier stocks.
 
 **The one figure with code force** is 2.54 m/s (500 fpm) at minimum turndown —
 NFPA 96 / IMC 506.3.4 — and it applies at the turndown flow of a VSD or DCKV
@@ -172,7 +188,7 @@ would be a second constraint saying the same thing.
 | Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
 | Duct type | Circular, rectangular or flexible. Flexible is locked to the runout role — it's what flexible duct is, and a flexible "main" would otherwise be checked against the main's limit. It isn't offered on kitchen grease extract at all, not being normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
-| Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
+| Installed condition | Flexible duct only: Typical 15 % (default, design basis) or Tight 4 % (only where specified fully extended and checked on site). |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
 | Width override | Rectangular only. Blank = solved from the height and the sizing target. |
 | Straight length | m. |
@@ -180,7 +196,7 @@ would be a second constraint saying the same thing.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
-duct role — main, branch and runout — for each of the eight spaces, editable
+duct role — main, branch and runout — for each of the ten spaces, editable
 independently of which space is active on the main page; the grease transport
 band and the turndown check; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
@@ -290,8 +306,16 @@ the segment velocity. Fixed-loss items (grilles, silencers, filters, coils)
 take a pressure in Pa instead. Every value is editable — replace them with
 manufacturers' data when you have it.
 
-**Flexible duct.** Higher roughness plus an installation factor: fully
-extended ×1.0, 15 % compressed ×2.0, 30 % compressed ×4.0.
+**Flexible duct.** Stretched roughness ε 0.9 mm (non-metallic / insulated;
+metallic 1.2 mm) times the ASHRAE Fundamentals compression correction, Eq. 22:
+`PDCF = 1 + 58·rc·e^(−0.00496·D)`, D in mm, valid 150–400 mm and held at the
+end values outside (below Ø150 the app notes the pressure drop is indicative).
+At 15 % that is ×5.1 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. LBNL-49012's
+size-specific fits agree within ~7 %. Two compression options: Typical 15 % (LBNL
+"normal stretch", default — a little conservative against the 10 % measured field
+average) and Tight 4 % (ACCA "fully extended"). Culp's underlying data scatter
+±20–30 %; ε 0.9 mm is ASHRAE's "medium rough" category value from recall, and
+mildly conservative against measured stretched flex.
 
 **Noise — deliberately not calculated.** There was an indicative A-weighted
 regenerated-noise estimate here. It was removed rather than improved, because

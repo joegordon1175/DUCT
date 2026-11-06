@@ -991,3 +991,174 @@ works from the service worker; nothing overflows at 320 px.
 Two "failures" in the physics pass were errors in the check script, not the
 engine — a sea-level object compared against the 1,500 m figure, and a
 misremembered table value for 1200 × 300 (620 mm by hand, as the engine gives).
+
+---
+
+## 14. Workshop and car park spaces
+
+The space list agreed earlier was never finished: there was nowhere for dust
+extract to run, so LEV borrowed "back of house", which describes a riser or a WC.
+
+- **Workshop / factory / process**, NR 50+, 10.0 / 8.0 / 6.0 — dust extract's
+  home, as Commercial kitchen is grease extract's.
+- **Car park / loading dock**, NR 55+, 10.0 / 8.0 / 6.0. AS 1668.2 sets car park
+  ventilation *rates*, not in-duct velocity.
+
+Both match back of house because the published limits run out above NR 45:
+AIRAH's top row (NR 50) is 10.0 / 8.0 / 6.0 with the riser capped at 10 at every
+NR, and CIBSE's industrial row is 10.0 / 8.0 / 5.0. Nothing published goes
+looser, so inventing a climb past it would be the wrong kind of precision.
+
+A dust duct still runs above the workshop cap, since transport velocity governs
+on LEV. The cap bites on general ventilation in the workshop instead.
+
+Choosing Dust or Kitchen on an unrelated space — the default open-plan office,
+say — now adds "usually runs in …" to the hint. It does not switch the space:
+a grease duct genuinely can cross a restaurant.
+
+---
+
+## 15. A separate circular size list for dust extract
+
+Dust extract snaps circular duct to its own list, defaulting to the EN 1506
+series — what LEV and spiral suppliers stock. The general list is unchanged and
+still used by every other system.
+
+The case for it is the band width. A transport band of 22.5–25 m/s spans only
+about 5 % in diameter, and 50 mm steps at 200–300 mm are 17–25 %, so they
+usually hold nothing inside it. Measured across 270 dust duties (six material
+classes, 50–8,000 l/s):
+
+| List | Duties with no size in band | Worst miss |
+|---|---|---|
+| General 50 mm | 45 % | 87 % |
+| EN 1506 | 14 % | 29 % |
+| EN 1506 + 150 / 300 | 14 % | 29 % |
+
+Adding 150 and 300, which some LEV ranges carry, buys nothing, so the default is
+the plain series. Rectangular dust duct keeps the shared rectangular list: it is
+rare on LEV, held to 2:1, and corners collect dust regardless.
+
+Example: 800 l/s of average industrial dust went to Ø200 at 25.5 m/s — over the
+cap, flagged "no size in your list" — and now lands on Ø224 inside its band.
+Older saves gain the list on load.
+
+## 16. Flexible duct: LBNL compression, sized on velocity, 8 Pa/m backstop
+
+The flat ×2 / ×4 compression factors were replaced, and flex stopped sizing on
+the 1 Pa/m project target.
+
+**Why.** Holding compressed flex to 1 Pa/m oversized it — 100 l/s at 15 %
+needed Ø250+, which nobody installs. Flex runouts are short (≤3–4 m), so 5 Pa/m
+across 3 m is 15 Pa, comparable to a grille. And a flat factor was wrong in
+shape: LBNL's lab work shows compression hurts small flex far more than large.
+
+**Compression model.** `PDCF = 1 + k·rc`, rc = compression ratio, k by diameter:
+
+| Ø | k | ×@4 % | ×@10 % | ×@15 % | ×@30 % |
+|---|---|---|---|---|---|
+| 150 | 25.35 | 2.01 | 3.54 | 4.80 | 8.61 |
+| 200 | 21.61 | 1.86 | 3.16 | 4.24 | 7.48 |
+| 250 | 16.18 | 1.65 | 2.62 | 3.43 | 5.85 |
+
+Interpolated between 150 and 250, held at the end values outside. Source:
+LBNL (Abushakra, Walker, Sherman), as reproduced in secondary literature — the
+primary report was not read, so the k values carry that caveat.
+
+**Options.** 4 % (ACCA Manual D "fully extended" ≤4 %), 10 % (LBNL/ACEEE 2002
+measured field average), **15 % default** (LBNL "normal stretch", typical of
+real installs), 30 % (poor/crushed — real, but a defect, not a design basis).
+Old saves: "Fully extended" → 4 %; 15 % and 30 % keep their ids.
+
+**Sizing.** Flex sizes on velocity — 3.5 m/s (AIRAH sw022) or the space's
+runout limit if lower — with an **8 Pa/m ceiling on the compressed friction
+rate** as a backstop. The friction search uses the compression factor at each
+trial diameter, so the ceiling is honoured exactly. 100 / 125 / 160 added to the
+flex list (untouched old lists upgrade on load).
+
+Result, 4 m runout:
+
+| l/s | 4 % | 10 % | 15 % | 30 % |
+|---|---|---|---|---|
+| 30 | Ø125 3.1 Pa/m | Ø125 5.5 | Ø125 7.5 | Ø150 5.1 |
+| 60 | Ø150 4.6 | Ø160 5.7 | Ø160 7.7 | Ø200 3.7 |
+| 100 | Ø200 2.6 | Ø200 4.3 | Ø200 5.8 | Ø250 2.5 |
+| 150 | Ø250 1.5 | Ø250 2.4 | Ø250 3.2 | Ø250 5.5 |
+| 250 | Ø350 0.7 | Ø350 1.1 | Ø350 1.5 | Ø350 2.5 |
+| 400 | Ø400 0.9 | Ø400 1.4 | Ø400 1.9 | Ø400 3.2 |
+
+Up to 15 %, velocity governs and compression barely moves the size; the
+backstop bites on small flex and at 30 %. The friction penalty still shows in
+the run's pressure drop, which is where it belongs.
+
+## 17. Flexible duct: ASHRAE Eq. 22 and a stretched baseline (07/11/2026)
+
+§16's model overstated flex friction twice over, found by reconciling it against
+a researched basis (sources below).
+
+**1. Large sizes.** LBNL's fits stop at Ø250, and §16 held that value above it.
+ASHRAE Fundamentals (2009 SI, Duct Design, Eq. 22, from Culp RP-1333) covers
+150–400 mm:
+
+  PDCF = 1 + 58 · rc · e^(−0.00496 D)
+
+| Ø | §16 ×@15 % | Eq. 22 ×@15 % | ×@4 % | ×@30 % |
+|---|---|---|---|---|
+| 150 | 4.80 | 5.13 | 2.1 | 9.3 |
+| 200 | 4.24 | 4.23 | 1.9 | 7.5 |
+| 250 | 3.43 | 3.52 | 1.7 | 6.0 |
+| 300 | 3.43 | 2.96 | 1.5 | 4.9 |
+| 350 | 3.43 | 2.53 | 1.4 | 4.1 |
+| 400 | 3.43 | 2.20 | 1.3 | 3.4 |
+
+At Ø400 §16 was 56 % high. Eq. 22 agrees with LBNL-49012 (primary) within ~7 %
+where both exist. Outside 150–400 mm D is held at the end; below Ø150 the app
+shows a note that the pressure drop is indicative.
+
+**2. Double-counted roughness.** PDCF is relative to stretched flex, but §16
+multiplied it onto ε 3 mm. Measured stretched flex is near sheet metal (Weaver &
+Culp 2007, ±2 %) and LBNL measured 10–35 % below a 0.9 mm baseline. Non-metallic
+and insulated flex now take ε 0.9 mm (ASHRAE "medium rough" — recalled category
+value, not read). Metallic flex stays 1.2 mm.
+
+Combined, 15 % at 3.5 m/s:
+
+| Ø | §16 Pa/m | Now | Research table |
+|---|---|---|---|
+| 150 | 11.7 | 8.7 | 8.7 |
+| 200 | 7.0 | 4.9 | 4.9 |
+| 300 | 3.3 | 2.0 | 2.0 |
+| 400 | 2.2 | 1.05 | 1.0 |
+
+**Effect on sizing** (4 m runout, 8 Pa/m ceiling unchanged):
+
+| l/s | 4 % | 10 % | 15 % | 30 % |
+|---|---|---|---|---|
+| 30 | Ø125 2.3 | Ø125 4.0 | Ø125 5.5 | Ø150 3.9 |
+| 60 | Ø150 3.4 | Ø150 6.0 | Ø160 5.6 | Ø200 2.7 |
+| 100 | Ø200 1.8 | Ø200 3.0 | Ø200 4.1 | Ø200 7.2 |
+| 150 | Ø250 1.1 | Ø250 1.8 | Ø250 2.4 | Ø250 4.0 |
+| 400 | Ø400 0.5 | Ø400 0.7 | Ø400 0.9 | Ø400 1.4 |
+
+Two sizes come down against §16 (60 l/s @10 % Ø160→Ø150; 100 l/s @30 %
+Ø250→Ø200); the Ø150→Ø160 step at 60 l/s @15 % stays. Critical-run pressure
+drops through flex fall by roughly 30–50 %.
+
+**Caveats.** Eq. 22 and its validity range were read from secondary
+reproductions of the Handbook; Culp's data scatter ±20–30 %; straight duct only
+— bends are carried as fittings. AIRAH's "2× measured length" allowance equals
+PDCF 2, i.e. ~4 % at Ø150, and under-allows on a typical site; the app does not
+use it.
+
+Sources: ASHRAE Fundamentals 2009 SI Eq. 22 (reproduction); Idem et al. on
+RP-1333; LBNL-49012 (escholarship qt0d76400v); Weaver & Culp 2007 (abstract);
+AIRAH sw022.
+
+## 18. Flex compression options cut to two
+
+Typical 15 % (default) and Tight 4 %. The 10 % option sized the same as 15 % in
+practice and 15 % is the slightly conservative design basis; 30 % describes a
+defective install, not a design condition, and is dropped. Saves on 10 % or 30 %
+load as Typical 15 %; "Fully extended" saves stay on Tight 4 %. Factors are
+unchanged (ASHRAE Eq. 22, §17). The §16/§17 tables keep their 10 % and 30 %
+columns for reference.

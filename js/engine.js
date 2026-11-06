@@ -186,17 +186,62 @@ export function rectangularHydraulics(flow, width, height, roughness, air = STAN
  * Sizing
  * ------------------------------------------------------------------ */
 
-/** Smallest diameter whose friction rate is at or below `targetPaPerM`. */
-export function diameterForFriction(flow, targetPaPerM, roughness, air = STANDARD_AIR) {
+/**
+ * Smallest diameter whose friction rate is at or below `targetPaPerM`.
+ *
+ * `multiplier(diameterM)` scales the straight-duct rate before the comparison —
+ * the compressed-flexible correction, which depends on diameter, so it cannot
+ * be applied by simply dividing the target. Both the base rate and the measured
+ * correction fall as the duct gets bigger, so the product is still monotonic
+ * and bisection still holds.
+ */
+export function diameterForFriction(flow, targetPaPerM, roughness, air = STANDARD_AIR, multiplier = () => 1) {
   if (!(flow > 0) || !(targetPaPerM > 0)) return 0;
   let lo = 0.02; // friction rate is monotonically decreasing in diameter
   let hi = 6;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
-    if (roundHydraulics(flow, mid, roughness, air).frictionRate > targetPaPerM) lo = mid;
+    if (roundHydraulics(flow, mid, roughness, air).frictionRate * multiplier(mid) > targetPaPerM) lo = mid;
     else hi = mid;
   }
   return hi;
+}
+
+/**
+ * Pressure-drop correction for compressed flexible duct (PDCF), relative to the
+ * same duct fully stretched:
+ *
+ *   PDCF = 1 + 58 · rc · e^(−0.00496·D)     rc = longitudinal compression ratio
+ *                                           (0.15 = 15 %), D in mm
+ *
+ * ASHRAE Fundamentals (2009 SI onward), Duct Design chapter, Eq. 22, from Culp
+ * (RP-1333). Valid 150–400 mm; the underlying data scatter ±20–30 %. Read from
+ * secondary reproductions of the Handbook text. The Handbook's own check — 150 to
+ * 400 mm at 70 % extended (rc 0.30) loses 3–9× fully extended — is reproduced.
+ *
+ * Cross-check: LBNL-49012 (Abushakra, Walker & Sherman, primary) fits
+ * PDCF = 1 + k·rc with k = 25.35 / 21.61 / 16.18 at 150 / 200 / 250 mm. It agrees
+ * within about 7 % (150 mm at 30 %: 8.6 against 9.3). The app used those fits
+ * before; ASHRAE's form replaces them because it covers 300–400 mm, where holding
+ * LBNL's 250 mm value overstated a 400 mm duct by ~55 %.
+ *
+ * Outside 150–400 mm there is no data in any set, so D is HELD at the nearest end
+ * rather than extrapolated. Below 150 that is an extrapolation by assumption and
+ * the app says so; holding at 150 understates rather than inflates, but small
+ * flex already hits the friction ceiling first.
+ *
+ * The baseline it multiplies must be STRETCHED flex. Measured stretched flex is
+ * close to sheet metal (Weaver & Culp 2007, ±2 %) and LBNL measured 10–35 % below
+ * a 0.9 mm "medium rough" baseline, so non-metallic flex takes ε 0.9 mm in
+ * data.js. A 3 mm roughness on top of this factor counted the penalty twice.
+ */
+export const FLEX_PDCF_RANGE_MM = [150, 400];
+
+export function flexCompressionFactor(diameterMm, compressionRatio) {
+  if (!(compressionRatio > 0) || !(diameterMm > 0)) return 1;
+  const [lo, hi] = FLEX_PDCF_RANGE_MM;
+  const d = Math.min(hi, Math.max(lo, diameterMm));
+  return 1 + 58 * compressionRatio * Math.exp(-0.00496 * d);
 }
 
 /** Diameter that produces exactly `velocity`. */
@@ -446,7 +491,10 @@ export function pressureClassDependsOnSign(staticPa, velocity) {
  * @param {object} ctx
  *   @param {object} ctx.air           from `airProperties`
  *   @param {number} ctx.roughness     absolute roughness ε, m
- *   @param {number} ctx.flexFactor    flexible-duct compression multiplier
+ *   @param {number} [ctx.flexCompression]  flexible-duct compression ratio
+ *     (0.15 = 15 %), applied through the measured diameter-dependent correction
+ *     in `flexCompressionFactor`. Takes precedence over `flexFactor`.
+ *   @param {number} [ctx.flexFactor]  legacy flat compression multiplier
  *   @param {'friction'|'velocity'} ctx.method  'friction' sizes to a target
  *     friction rate ("ceiling" mode — velocity limits are a check, not a
  *     sizing input). 'velocity' sizes to `targetVelocity` as a MINIMUM
@@ -478,7 +526,16 @@ export function calcSegment(seg, ctx) {
   const roughness = ctx.roughness ?? 0.00009;
   // Guarded > 0: it divides the friction target when sizing, below.
   const rawFlexFactor = seg.shape === 'flexible' ? (ctx.flexFactor ?? 1) : 1;
-  const flexFactor = Number.isFinite(rawFlexFactor) && rawFlexFactor > 0 ? rawFlexFactor : 1;
+  const flatFlexFactor = Number.isFinite(rawFlexFactor) && rawFlexFactor > 0 ? rawFlexFactor : 1;
+  // Given a compression ratio, flexible duct uses the measured, diameter-
+  // dependent correction; otherwise the flat factor (kept for callers that
+  // pass one). The two never combine.
+  const compression =
+    seg.shape === 'flexible' && Number.isFinite(ctx.flexCompression) && ctx.flexCompression >= 0
+      ? ctx.flexCompression
+      : null;
+  const flexAt = (diameterM) =>
+    compression !== null ? flexCompressionFactor(diameterM * 1000, compression) : flatFlexFactor;
   const rectangular = seg.shape === 'rectangular';
   const sizes = rectangular ? ctx.rectSizes : ctx.roundSizes;
   const useStandard = ctx.useStandardSizes !== false;
@@ -493,7 +550,7 @@ export function calcSegment(seg, ctx) {
   // Inflating the roughness instead would be a different model entirely —
   // roughness only enters logarithmically, so it under-sizes badly (a 4x
   // factor came out ~2.4x over target).
-  const dFriction = diameterForFriction(flow, ctx.targetFriction / flexFactor, roughness, air);
+  const dFriction = diameterForFriction(flow, ctx.targetFriction, roughness, air, flexAt);
 
   // The minimum velocity the duct must hold. It overrides the friction target
   // on small flows, where sizing for Pa/m alone would leave the duct too big
@@ -592,6 +649,7 @@ export function calcSegment(seg, ctx) {
     ? rectangularHydraulics(flow, w, h, roughness, air)
     : roundHydraulics(flow, h, roughness, air);
 
+  const flexFactor = seg.shape === 'flexible' ? flexAt(h) : 1;
   const frictionRate = hyd.frictionRate * flexFactor; // Pa/m
   const lengthM = Math.max(seg.lengthM ?? 0, 0);
   const straightLoss = frictionRate * lengthM;

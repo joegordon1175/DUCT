@@ -6,13 +6,16 @@
  * caret position survive a recalculation.
  */
 
-import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from './engine.js';
+import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign, FLEX_PDCF_RANGE_MM } from './engine.js';
 import {
   SPACE_TYPES,
   SYSTEM_TYPES,
   DUST_CLASSES,
   dustClass,
   FLEX_MAX_VELOCITY,
+  FLEX_MAX_FRICTION,
+  DEFAULT_FLEX_CONDITION,
+  LEGACY_FLEX_SIZES,
   DEFAULT_FRICTION_TARGET,
   DUCT_ROLES,
   DEFAULT_MATERIAL,
@@ -30,10 +33,11 @@ import {
   ROUND_SIZES,
   RECT_SIZES,
   FLEX_SIZES,
+  DUST_ROUND_SIZES,
 } from './data.js';
 
 /** Standard duct sizes are user-editable; these are the shipped starting points. */
-const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES };
+const DEFAULT_SIZE_LISTS = { round: ROUND_SIZES, rect: RECT_SIZES, flex: FLEX_SIZES, dust: DUST_ROUND_SIZES };
 
 /** Duct roles a velocity limit applies to. Flexible duct no longer has its own
  * entry — those figures were inert (see the note in data.js) and flexible is
@@ -156,7 +160,7 @@ function newSegment(over = {}) {
     role: 'branch',
     shape: 'circular',
     materialId: DEFAULT_MATERIAL.circular,
-    flexCondition: 'extended',
+    flexCondition: DEFAULT_FLEX_CONDITION,
     heightMm: '',
     widthMm: '',
     lengthM: 10,
@@ -219,6 +223,7 @@ function defaultState() {
       round: [...DEFAULT_SIZE_LISTS.round],
       rect: [...DEFAULT_SIZE_LISTS.rect],
       flex: [...DEFAULT_SIZE_LISTS.flex],
+      dust: [...DEFAULT_SIZE_LISTS.dust],
     },
     // Sizing method is fixed per system (see data.js) — not stored here.
     // One project-wide friction target: with noise handled by the velocity cap
@@ -229,6 +234,7 @@ function defaultState() {
     greaseMaxVelocity: DEFAULT_GREASE_MAX_VELOCITY,
     turndownVelocity: DEFAULT_TURNDOWN_VELOCITY,
     dustClassId: DEFAULT_DUST_CLASS,
+    flexMaxFriction: FLEX_MAX_FRICTION,
     // % of design flow at minimum turndown; 0 = constant volume, no check.
     turndownPct: 0,
     segments: [newSegment()],
@@ -245,7 +251,16 @@ function sizeListFor(key) {
 function sizesForShape(shape) {
   if (shape === 'rectangular') return sizeListFor('rect');
   if (shape === 'flexible') return sizeListFor('flex');
+  // Dust extract has its own circular list: its transport band is so narrow
+  // that 50 mm steps usually hold nothing inside it. See DUST_ROUND_SIZES.
+  if (state.systemTypeId === 'dust') return sizeListFor('dust');
   return sizeListFor('round');
+}
+
+/** Flexible duct friction ceiling, Pa/m, on the compressed rate. */
+function flexMaxFrictionFor() {
+  const v = state.flexMaxFriction;
+  return Number.isFinite(v) && v > 0 ? v : FLEX_MAX_FRICTION;
 }
 
 /** The project friction target, Pa/m. Falls back to the shipped default if the
@@ -346,7 +361,10 @@ function sanitiseSegment(raw) {
   if (!['circular', 'rectangular', 'flexible'].includes(seg.shape)) seg.shape = 'circular';
   if (!DUCT_ROLES.some((r) => r.id === seg.role)) seg.role = 'branch';
   if (!materialsFor(seg.shape).some((m) => m.id === seg.materialId)) seg.materialId = DEFAULT_MATERIAL[seg.shape];
-  if (!FLEX_CONDITIONS.some((c) => c.id === seg.flexCondition)) seg.flexCondition = 'extended';
+  // The old options were "fully extended" plus flat x2 / x4 factors. "Fully
+  // extended" maps to 4 % — ACCA's own definition of it is ≤4 % compression.
+  if (seg.flexCondition === 'extended') seg.flexCondition = 'c04';
+  if (!FLEX_CONDITIONS.some((c) => c.id === seg.flexCondition)) seg.flexCondition = DEFAULT_FLEX_CONDITION;
   seg.fittings = (Array.isArray(seg.fittings) ? seg.fittings : [])
     .filter((f) => f && typeof f === 'object')
     .map((f) => ({
@@ -365,6 +383,16 @@ function normaliseState(parsed) {
   const merged = { ...defaults, ...parsed };
   // Older saves predate the custom size lists, or may only have some shapes set.
   merged.sizeLists = { ...defaults.sizeLists, ...(parsed.sizeLists ?? {}) };
+  // Upgrade an untouched flexible list to gain 100 / 125 / 160; leave an edited
+  // one alone, since that was the user's choice.
+  const storedFlex = merged.sizeLists.flex;
+  if (Array.isArray(storedFlex) && storedFlex.length === LEGACY_FLEX_SIZES.length &&
+      storedFlex.every((v, i) => v === LEGACY_FLEX_SIZES[i])) {
+    merged.sizeLists.flex = [...defaults.sizeLists.flex];
+  }
+  if (!(Number.isFinite(merged.flexMaxFriction) && merged.flexMaxFriction > 0)) {
+    merged.flexMaxFriction = FLEX_MAX_FRICTION;
+  }
   /* -- space / system split -------------------------------------------
    * "Residential / Commercial / Kitchen Extract" used to be one setting doing
    * two jobs. It is now a SPACE (which sets the velocity maximum, since noise
@@ -644,7 +672,9 @@ function context(segment) {
   const air = airProperties(num(state.tempC, 20), num(state.altitudeM, 0));
   const mat = material(segment.materialId);
   const flex =
-    FLEX_CONDITIONS.find((c) => c.id === segment.flexCondition) ?? FLEX_CONDITIONS[0];
+    FLEX_CONDITIONS.find((c) => c.id === segment.flexCondition) ??
+    FLEX_CONDITIONS.find((c) => c.id === DEFAULT_FLEX_CONDITION);
+  const isFlex = segment.shape === 'flexible';
   const system = systemType(state.systemTypeId);
   // Flexible duct is locked to the runout role by `enforceShapeRules`, so the
   // role is read straight through; it no longer has a limit of its own.
@@ -655,11 +685,15 @@ function context(segment) {
   return {
     air,
     roughness: mat.roughnessMm / 1000,
-    flexFactor: flex.factor,
+    // Measured, diameter-dependent compression correction (engine.js).
+    flexCompression: flex.compression,
     // Fixed per system — see data.js. 'velocity' sizes to `limits.min` as a
     // MINIMUM (engine.js snaps standard sizes down, not up, to hold it).
     method: system.sizingMethod,
-    targetFriction: frictionTarget(),
+    // Flexible duct sizes on velocity, with its friction ceiling as the
+    // backstop: the project target would size it so the selection swings with
+    // the compression assumed. See FLEX_MAX_FRICTION.
+    targetFriction: isFlex ? flexMaxFrictionFor() : frictionTarget(),
     targetVelocity: limits.min,
     maxVelocity: limits.max,
     // Friction mode: the floor that overrides the friction target on a small
@@ -796,7 +830,7 @@ function buildDesignBasis() {
  * that entirely and suits a touch tool better anyway.
  * ------------------------------------------------------------------ */
 
-const SIZE_KEYS = ['round', 'rect', 'flex'];
+const SIZE_KEYS = ['round', 'dust', 'rect', 'flex'];
 
 function renderSizeChips(key) {
   $(`#sizes-${key}-chips`).replaceChildren(
@@ -908,6 +942,7 @@ function renderSettingsTargets() {
     `the system chosen on the main page sets the sizing method.`;
 
   $('#settings-target-friction').value = frictionTarget();
+  $('#settings-flex-max-friction').value = flexMaxFrictionFor();
 
 
   /* -- the space's acoustic maxima --------------------------------- */
@@ -1138,7 +1173,7 @@ function segmentCard(seg, index) {
         flexGroup,
         el('p', {
           class: 'hint',
-          text: 'Compressed flexible duct loses pressure far faster than the same duct pulled tight — 15 % compression roughly doubles it.',
+          text: 'Compression multiplies friction, worst on small sizes (ASHRAE Eq. 22): at 15 % about ×5 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. Design to Typical; choose Tight only where flex is specified fully extended and checked on site.',
         }),
       ])
     );
@@ -1533,6 +1568,14 @@ function update() {
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
     }
+    // ASHRAE Eq. 22 is fitted on 150–400 mm; below that the Ø150 factor is held.
+    if (result.shape === 'flexible' && result.heightMm < FLEX_PDCF_RANGE_MM[0]) {
+      flags.push({
+        level: 'info',
+        text: `Seg ${i}: Ø${fmt0(result.heightMm)} flex is below the ${FLEX_PDCF_RANGE_MM[0]} mm tested range — ` +
+          `the Ø${FLEX_PDCF_RANGE_MM[0]} compression factor is assumed, so treat its pressure drop as indicative.`,
+      });
+    }
     // Sizing never leaves the configured size list, so a duty the list cannot
     // serve has to be said out loud rather than met with an invented size.
     if (result.sizeLimited && state.useStandardSizes) {
@@ -1545,7 +1588,11 @@ function update() {
     // Sized to the friction target but could not hold it — an overridden size,
     // a duty past the end of the list, or the velocity floor overriding it.
     if (result.exceedsFrictionTarget) {
-      flags.push({
+      flags.push(result.shape === 'flexible' ? {
+        level: 'warn',
+        text: `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is over the ${fmt(flexMaxFrictionFor(), 1)} Pa/m flexible ceiling — ` +
+          `no listed size holds it under the velocity limit. Shorten the run or pull it tighter.`,
+      } : {
         level: result.velocityFloorOverrode ? 'info' : 'warn',
         text: result.velocityFloorOverrode
           ? `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m — the ${fmt(ctx.limits.min, 1)} m/s velocity floor overrides the ${fmt(frictionTarget(), 1)} Pa/m target at this flow, as intended`
@@ -1646,13 +1693,21 @@ function update() {
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
   const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main', 'circular');
-  $('#space-hint').textContent = system.id === 'dust'
+  // Each transport system has a natural home. If the chosen space isn't it,
+  // say where it usually runs rather than switching the space behind the
+  // user's back — a grease duct really can cross a restaurant.
+  const HOME = { dust: ['workshop', 'Workshop / factory / process'], grease: ['kitchen', 'Commercial kitchen'] };
+  const home = HOME[system.id];
+  const nudge = home && state.spaceTypeId !== home[0] && !['backhouse', 'carpark', 'workshop', 'kitchen'].includes(state.spaceTypeId)
+    ? ` · usually runs in ${home[1]}`
+    : '';
+  $('#space-hint').textContent = (system.id === 'dust'
     ? `${dustClass(state.dustClassId).name} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s transport velocity, which governs over the acoustic limit`
     : isGrease
     ? `${space.useCase} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s at design flow, floor overrides Pa/m on small flows`
-    : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`;
+    : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`) + nudge;
 
   save();
 }
@@ -1833,6 +1888,11 @@ function init() {
     update();
   });
 
+  $('#settings-flex-max-friction').addEventListener('input', (e) => {
+    state.flexMaxFriction = num(e.target.value, FLEX_MAX_FRICTION);
+    update();
+  });
+
   $('#settings-grease-min').addEventListener('input', (e) => {
     state.greaseMinVelocity = num(e.target.value, DEFAULT_GREASE_MIN_VELOCITY);
     update();
@@ -1855,6 +1915,7 @@ function init() {
 
   $('#settings-reset-targets').addEventListener('click', () => {
     state.frictionTarget = DEFAULT_FRICTION_TARGET;
+    state.flexMaxFriction = FLEX_MAX_FRICTION;
     state.maxVelocities = JSON.parse(JSON.stringify(DEFAULT_MAX_VELOCITY));
     state.greaseMinVelocity = DEFAULT_GREASE_MIN_VELOCITY;
     state.greaseMaxVelocity = DEFAULT_GREASE_MAX_VELOCITY;
