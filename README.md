@@ -58,6 +58,8 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Open-plan office | NR 38 | 8.0 | 7.0 | 4.5 |
 | Retail / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
 | Toilet / back-of-house / riser / plant | NR 45+ | 10.0 | 8.0 | 6.0 |
+| Workshop / factory / process | NR 50+ | 10.0 | 8.0 | 6.0 |
+| Car park / loading dock | NR 55+ | 10.0 | 8.0 | 6.0 |
 | Commercial kitchen | NR 45+ | 10.0 | 8.0 | 8.0 |
 
 Reconciled against AIRAH Skills Workshop sw123 Table 1 and ASHRAE *HVAC
@@ -70,6 +72,13 @@ working, including what changed and why, is in `docs/CALCULATION-REVIEW.md` §11
 **Flexible duct is capped at 3.5 m/s** on top of all this — AIRAH sw022, which
 calls it reasonable present-day practice. It binds under most spaces' runout
 figures.
+
+Above NR 45 the published limits plateau — AIRAH caps the riser column at
+10 m/s at every NR — so back of house, workshop and car park share figures. They
+are separate rows so the space is named correctly and can be tuned on its own.
+**Workshop / factory / process** is where dust extract lives, as Commercial
+kitchen is where grease extract lives; pick either system on a different space
+and the hint says where it usually runs, without switching it for you.
 
 Commercial kitchen sits outside that scale deliberately. The duct runs in a space
 where the canopy fans and the appliances already dominate, so the duct isn't what
@@ -180,7 +189,7 @@ would be a second constraint saying the same thing.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
-duct role — main, branch and runout — for each of the eight spaces, editable
+duct role — main, branch and runout — for each of the ten spaces, editable
 independently of which space is active on the main page; the grease transport
 band and the turndown check; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit

@@ -901,6 +901,17 @@ test('the grease velocity band is flat across the roles', () => {
   assert.ok(systemType('grease').minVelocityTurndown < systemType('grease').minVelocity);
 });
 
+test('each transport system has a space of its own', () => {
+  // Grease runs in a commercial kitchen; dust extract in a workshop. Before the
+  // workshop row, LEV had to borrow back of house, which describes a riser.
+  assert.equal(spaceType('kitchen').id, 'kitchen');
+  assert.equal(spaceType('workshop').id, 'workshop');
+  assert.equal(spaceType('carpark').id, 'carpark');
+  // Above NR 45 the published limits plateau at AIRAH's 10 m/s riser cap, so
+  // these rows are allowed to match back of house rather than climb past it.
+  for (const id of ['backhouse', 'workshop', 'carpark']) assert.equal(maxVelocity(id, 'main'), 10);
+});
+
 test('no space main exceeds the AIRAH absolute riser maximum', () => {
   // AIRAH sw123 caps the riser column at 10.0 m/s at EVERY NR, and frames its
   // table as absolute maxima rather than design recommendations. Back of house

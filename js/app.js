@@ -1646,13 +1646,21 @@ function update() {
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
   const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main', 'circular');
-  $('#space-hint').textContent = system.id === 'dust'
+  // Each transport system has a natural home. If the chosen space isn't it,
+  // say where it usually runs rather than switching the space behind the
+  // user's back — a grease duct really can cross a restaurant.
+  const HOME = { dust: ['workshop', 'Workshop / factory / process'], grease: ['kitchen', 'Commercial kitchen'] };
+  const home = HOME[system.id];
+  const nudge = home && state.spaceTypeId !== home[0] && !['backhouse', 'carpark', 'workshop', 'kitchen'].includes(state.spaceTypeId)
+    ? ` · usually runs in ${home[1]}`
+    : '';
+  $('#space-hint').textContent = (system.id === 'dust'
     ? `${dustClass(state.dustClassId).name} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s transport velocity, which governs over the acoustic limit`
     : isGrease
     ? `${space.useCase} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s at design flow, floor overrides Pa/m on small flows`
-    : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`;
+    : `${space.useCase} · ${space.nr} sets the maximum · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m`) + nudge;
 
   save();
 }

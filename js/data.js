@@ -202,6 +202,39 @@ export const SPACE_TYPES = [
     roles: { main: 10.0, branch: 8.0, runout: 6.0 },
   },
   {
+    // Where LEV lives, the way a commercial kitchen is where grease extract
+    // lives. Before this, a dust system had to borrow "back of house", which
+    // describes a riser or a WC rather than a workshop.
+    //
+    // The numbers match back of house because the published limits run out
+    // here: AIRAH caps the riser column at 10.0 m/s at every NR and its top row
+    // (NR 50) is 10.0 / 8.0 / 6.0; CIBSE's industrial row (NR 45–55) is
+    // 10.0 / 8.0 / 5.0. Nothing published goes looser. The row exists so the
+    // space is named correctly and can be tuned on its own.
+    //
+    // A dust duct still runs above these — transport velocity governs on an
+    // LEV system — so in practice this cap bites on general ventilation in the
+    // workshop, not on the dust extract.
+    id: 'workshop',
+    name: 'Workshop / factory / process',
+    short: 'Workshop',
+    useCase: 'Workshops, factories and process areas — where LEV runs',
+    nr: 'NR 50+',
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
+  },
+  {
+    // Large, hard, already noisy, rarely occupied for long. Same ceiling as the
+    // workshop for the same reason: the published tables plateau at AIRAH's
+    // 10 m/s riser cap above NR 45. AS 1668.2 governs car park ventilation
+    // RATES, not in-duct velocity.
+    id: 'carpark',
+    name: 'Car park / loading dock',
+    short: 'Car park',
+    useCase: 'Car parks, loading docks, service yards',
+    nr: 'NR 55+',
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
+  },
+  {
     // Deliberately NOT part of the acoustic scale above, which runs from the
     // tightest room to the least critical. A commercial kitchen is its own
     // case: the duct runs in a space where the canopy fans and the appliances

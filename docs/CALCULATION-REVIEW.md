@@ -991,3 +991,27 @@ works from the service worker; nothing overflows at 320 px.
 Two "failures" in the physics pass were errors in the check script, not the
 engine — a sea-level object compared against the 1,500 m figure, and a
 misremembered table value for 1200 × 300 (620 mm by hand, as the engine gives).
+
+---
+
+## 14. Workshop and car park spaces
+
+The space list agreed earlier was never finished: there was nowhere for dust
+extract to run, so LEV borrowed "back of house", which describes a riser or a WC.
+
+- **Workshop / factory / process**, NR 50+, 10.0 / 8.0 / 6.0 — dust extract's
+  home, as Commercial kitchen is grease extract's.
+- **Car park / loading dock**, NR 55+, 10.0 / 8.0 / 6.0. AS 1668.2 sets car park
+  ventilation *rates*, not in-duct velocity.
+
+Both match back of house because the published limits run out above NR 45:
+AIRAH's top row (NR 50) is 10.0 / 8.0 / 6.0 with the riser capped at 10 at every
+NR, and CIBSE's industrial row is 10.0 / 8.0 / 5.0. Nothing published goes
+looser, so inventing a climb past it would be the wrong kind of precision.
+
+A dust duct still runs above the workshop cap, since transport velocity governs
+on LEV. The cap bites on general ventilation in the workshop instead.
+
+Choosing Dust or Kitchen on an unrelated space — the default open-plan office,
+say — now adds "usually runs in …" to the hint. It does not switch the space:
+a grease duct genuinely can cross a restaurant.
