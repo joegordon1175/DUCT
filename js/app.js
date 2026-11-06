@@ -369,6 +369,7 @@ function sanitiseSegment(raw) {
     .filter((f) => f && typeof f === 'object')
     .map((f) => ({
       ...f,
+      kind: fittingKind(f),
       name: typeof f.name === 'string' ? f.name : 'Fitting',
       qty: Number.isFinite(Number(f.qty)) && Number(f.qty) > 0 ? Number(f.qty) : 1,
       zeta: Number.isFinite(Number(f.zeta)) && Number(f.zeta) >= 0 ? Number(f.zeta) : 0,
@@ -376,6 +377,19 @@ function sanitiseSegment(raw) {
     }));
   if (seg.shape === 'flexible') seg.role = 'runout';
   return seg;
+}
+
+/**
+ * Whether a fitting's value is a ζ or a fixed pressure. Stored explicitly:
+ * inferring it from "fixedPa > 0" turned a grille set to 0 into a ζ item on the
+ * next render, so re-entering 25 meant ζ 25 — over 10x the intended loss. Older
+ * saves take it from the library entry, else from the value they carry.
+ */
+function fittingKind(f) {
+  if (f.kind === 'fixed' || f.kind === 'zeta') return f.kind;
+  const lib = FITTINGS.find((x) => x.id === f.id);
+  if (lib) return lib.fixedPa !== undefined ? 'fixed' : 'zeta';
+  return Number(f.fixedPa) > 0 ? 'fixed' : 'zeta';
 }
 
 function normaliseState(parsed) {
@@ -735,8 +749,9 @@ function compute() {
         fittings: seg.fittings.map((f) => ({
           id: f.id,
           name: f.name,
-          zeta: num(f.zeta, 0),
-          fixedPa: num(f.fixedPa, 0),
+          // Only the value that matches the fitting's kind reaches the engine.
+          zeta: fittingKind(f) === 'zeta' ? num(f.zeta, 0) : 0,
+          fixedPa: fittingKind(f) === 'fixed' ? num(f.fixedPa, 0) : 0,
           qty: num(f.qty, 1),
         })),
       },
@@ -1316,7 +1331,7 @@ function renderFittings(seg, host) {
 
   host.replaceChildren(
     ...seg.fittings.map((fit, i) => {
-      const isFixed = num(fit.fixedPa, 0) > 0;
+      const isFixed = fittingKind(fit) === 'fixed';
 
       const valueInput = el('input', {
         type: 'number',
@@ -1388,6 +1403,7 @@ function renderFittingList(seg, query = '') {
     seg.fittings.push({
       id: item.id,
       name: item.name,
+      kind: item.fixedPa !== undefined ? 'fixed' : 'zeta',
       zeta: item.zeta ?? 0,
       fixedPa: item.fixedPa ?? 0,
       qty: 1,

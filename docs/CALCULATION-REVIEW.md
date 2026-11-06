@@ -1260,3 +1260,26 @@ uses its editable lists). Stale engine doc for the removed velocity mode and
 **Notes tidied**: README rewritten to describe the current app only (it still
 described the velocity mode, six spaces, two systems and 1.15 kg/m³ as
 unmodelled); this summary added at the top of the review.
+
+## 22. Fittings and equipment check (07/11/2026)
+
+**Calculation verified.** ζ items: `Δp = ζ·ρv²/2` at the segment's actual
+velocity (rectangular uses face area, not De), times quantity, at the run's
+design air density. Fixed-Pa items are added as entered and do not scale with
+flow. Fittings equivalent length excludes fixed-Pa items. All reproduced by hand.
+
+**Defect fixed — a fixed-Pa item could turn into a ζ item.** Whether a fitting's
+value was Pa or ζ was inferred from `fixedPa > 0`. Set a grille to 0 and reload
+and it re-rendered as ζ, so re-entering 25 meant ζ 25: a 500 l/s run went from
+34 Pa to 415 Pa. The kind is now stored on each fitting (older saves take it
+from the library entry) and only the matching value reaches the engine.
+
+**Tidied.** "Custom item" (a ζ placeholder) moved out of the Fixed loss group
+and renamed "Custom item (ζ)". The fitting picker now says which segment each
+ζ should sit on, and that AHU internals belong in the plant allowance — fixed
+items entered as fittings count towards the mean duct pressure used for
+leakage.
+
+**Library values** are typical published figures, mostly consistent with the
+ASHRAE Duct Fitting Database at common geometries; see the user-facing summary
+of that check for the items worth confirming against manufacturer data.

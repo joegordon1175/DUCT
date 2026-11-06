@@ -786,6 +786,10 @@ main { padding-bottom: calc(var(--sum-h) + var(--safe-b)); }
   flex: none;
   padding: 10px var(--pad) 0;
 }
+.sheet-note {
+  flex: none;
+  margin: 8px var(--pad) 0;
+}
 .sheet-search input {
   width: 100%;
   min-height: 42px;

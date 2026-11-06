@@ -646,6 +646,8 @@ export const FITTINGS = [
   { id: 'nrv', name: 'Non-return / backdraught damper', zeta: 1.2, group: 'Components', shapes: ['circular', 'rectangular'] },
   { id: 'mesh', name: 'Bird / insect mesh', zeta: 0.7, group: 'Components', shapes: ['circular', 'rectangular'] },
   { id: 'plenum', name: 'Plenum box, side entry', zeta: 1.0, group: 'Components', shapes: ['circular', 'rectangular', 'flexible'] },
+  // A ζ placeholder to edit; for a fixed pressure use "Extra fixed loss" on the segment.
+  { id: 'custom', name: 'Custom item (ζ)', zeta: 0.5, group: 'Components', shapes: ['circular', 'rectangular', 'flexible'] },
 
   // --- fixed-pressure items (ζ ignored, Pa entered directly) ----------
   { id: 'grille', name: 'Grille / diffuser', fixedPa: 25, group: 'Fixed loss', shapes: ['circular', 'rectangular', 'flexible'] },
@@ -656,7 +658,7 @@ export const FITTINGS = [
   { id: 'filter', name: 'Filter (dirty)', fixedPa: 150, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'coil', name: 'Heating / cooling coil', fixedPa: 80, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
   { id: 'heat_rec', name: 'Heat recovery unit', fixedPa: 120, group: 'Fixed loss', shapes: ['circular', 'rectangular'] },
-  { id: 'custom', name: 'Custom item', zeta: 0.5, group: 'Fixed loss', shapes: ['circular', 'rectangular', 'flexible'] },
+
 ];
 
 export function fittingsFor(shape) {
