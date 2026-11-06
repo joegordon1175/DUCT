@@ -306,13 +306,16 @@ the segment velocity. Fixed-loss items (grilles, silencers, filters, coils)
 take a pressure in Pa instead. Every value is editable — replace them with
 manufacturers' data when you have it.
 
-**Flexible duct.** Higher roughness (ε 3 mm) plus the LBNL size-dependent
-compression correction, `PDCF = 1 + k·rc`, with k = 25.35 at Ø150, 21.61 at
-Ø200, 16.18 at Ø250 (interpolated between, held outside that range). At 15 %
-that is ×4.8 at Ø150 and ×3.4 at Ø250. Compression options: 4 % (ACCA
+**Flexible duct.** Stretched roughness ε 0.9 mm (non-metallic / insulated;
+metallic 1.2 mm) times the ASHRAE Fundamentals compression correction, Eq. 22:
+`PDCF = 1 + 58·rc·e^(−0.00496·D)`, D in mm, valid 150–400 mm and held at the
+end values outside (below Ø150 the app notes the pressure drop is indicative).
+At 15 % that is ×5.1 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. LBNL-49012's
+size-specific fits agree within ~7 %. Compression options: 4 % (ACCA
 "fully extended"), 10 % (LBNL/ACEEE 2002 measured field average), 15 % (LBNL
-"normal stretch", default), 30 % (poor install). The k values are from LBNL's
-published work as reproduced in secondary sources; treat them as such.
+"normal stretch", default), 30 % (poor install). Culp's underlying data scatter
+±20–30 %; ε 0.9 mm is ASHRAE's "medium rough" category value from recall, and
+mildly conservative against measured stretched flex.
 
 **Noise — deliberately not calculated.** There was an indicative A-weighted
 regenerated-noise estimate here. It was removed rather than improved, because

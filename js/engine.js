@@ -208,50 +208,40 @@ export function diameterForFriction(flow, targetPaPerM, roughness, air = STANDAR
 }
 
 /**
- * Measured pressure-drop correction for compressed flexible duct:
+ * Pressure-drop correction for compressed flexible duct (PDCF), relative to the
+ * same duct fully stretched:
  *
- *   PDCF = 1 + k · rc      (rc = longitudinal compression ratio, 0.15 = 15 %)
+ *   PDCF = 1 + 58 · rc · e^(−0.00496·D)     rc = longitudinal compression ratio
+ *                                           (0.15 = 15 %), D in mm
  *
- * Abushakra, Walker & Sherman, "Compression Effects on Pressure Loss in Flexible
- * HVAC Ducts", HVAC&R Research 2002 (LBNL-49012), from ASHRAE Standard 120 tests
- * on non-metallic flexible duct, to 30 % compression. k falls with diameter —
- * small flexible duct suffers far more from being compressed — which is the
- * paper's central correction to the older ASHRAE Fundamentals curve, which was
- * size-independent and based on unextended duct. That older curve is where this
- * app's previous flat x2 at 15 % and x4 at 30 % came from; measured, 15 % is
- * x3.4–4.8 and 30 % is x5.9–8.6.
+ * ASHRAE Fundamentals (2009 SI onward), Duct Design chapter, Eq. 22, from Culp
+ * (RP-1333). Valid 150–400 mm; the underlying data scatter ±20–30 %. Read from
+ * secondary reproductions of the Handbook text. The Handbook's own check — 150 to
+ * 400 mm at 70 % extended (rc 0.30) loses 3–9× fully extended — is reproduced.
  *
- * Measured at 6, 8 and 10 inch only. Between those, interpolate; outside them,
- * HOLD the nearest measured value rather than extrapolate — a straight line
- * through three points runs to nonsense either side. Holding at the large end
- * overstates a big duct's correction slightly, which is the safe direction.
+ * Cross-check: LBNL-49012 (Abushakra, Walker & Sherman, primary) fits
+ * PDCF = 1 + k·rc with k = 25.35 / 21.61 / 16.18 at 150 / 200 / 250 mm. It agrees
+ * within about 7 % (150 mm at 30 %: 8.6 against 9.3). The app used those fits
+ * before; ASHRAE's form replaces them because it covers 300–400 mm, where holding
+ * LBNL's 250 mm value overstated a 400 mm duct by ~55 %.
  *
- * The coefficients came through a SECONDARY copy of the paper (a fourth fitted
- * line was garbled and is not used); confirm against the original.
+ * Outside 150–400 mm there is no data in any set, so D is HELD at the nearest end
+ * rather than extrapolated. Below 150 that is an extrapolation by assumption and
+ * the app says so; holding at 150 understates rather than inflates, but small
+ * flex already hits the friction ceiling first.
+ *
+ * The baseline it multiplies must be STRETCHED flex. Measured stretched flex is
+ * close to sheet metal (Weaver & Culp 2007, ±2 %) and LBNL measured 10–35 % below
+ * a 0.9 mm "medium rough" baseline, so non-metallic flex takes ε 0.9 mm in
+ * data.js. A 3 mm roughness on top of this factor counted the penalty twice.
  */
-export const FLEX_COMPRESSION_K = [
-  [150, 25.35], // 6 in
-  [200, 21.61], // 8 in
-  [250, 16.18], // 10 in
-];
+export const FLEX_PDCF_RANGE_MM = [150, 400];
 
 export function flexCompressionFactor(diameterMm, compressionRatio) {
   if (!(compressionRatio > 0) || !(diameterMm > 0)) return 1;
-  const pts = FLEX_COMPRESSION_K;
-  let k;
-  if (diameterMm <= pts[0][0]) k = pts[0][1];
-  else if (diameterMm >= pts[pts.length - 1][0]) k = pts[pts.length - 1][1];
-  else {
-    for (let i = 1; i < pts.length; i++) {
-      if (diameterMm <= pts[i][0]) {
-        const [d0, k0] = pts[i - 1];
-        const [d1, k1] = pts[i];
-        k = k0 + ((k1 - k0) * (diameterMm - d0)) / (d1 - d0);
-        break;
-      }
-    }
-  }
-  return 1 + k * compressionRatio;
+  const [lo, hi] = FLEX_PDCF_RANGE_MM;
+  const d = Math.min(hi, Math.max(lo, diameterMm));
+  return 1 + 58 * compressionRatio * Math.exp(-0.00496 * d);
 }
 
 /** Diameter that produces exactly `velocity`. */

@@ -70,8 +70,14 @@ export const MATERIALS = [
   { id: 'lined', name: 'Acoustically lined (fibrous liner)', roughnessMm: 1.5, shapes: ['circular', 'rectangular'] },
   { id: 'concrete', name: 'Concrete / builders work', roughnessMm: 3.0, shapes: ['rectangular'] },
   { id: 'flex_metal', name: 'Flexible, metallic', roughnessMm: 1.2, shapes: ['flexible'] },
-  { id: 'flex_nonmetal', name: 'Flexible, non-metallic', roughnessMm: 3.0, shapes: ['flexible'] },
-  { id: 'flex_insulated', name: 'Flexible, insulated', roughnessMm: 3.0, shapes: ['flexible'] },
+  // Non-metallic flex is entered at its STRETCHED roughness. The compression
+  // penalty is applied separately by flexCompressionFactor (ASHRAE Eq. 22), whose
+  // baseline is stretched duct — ASHRAE "medium rough", 0.9 mm (recalled category
+  // value, not read from the Handbook). Measured stretched flex sits at or below
+  // this (LBNL 10–35 % below; Weaver & Culp ±2 % of sheet metal), so it is mildly
+  // conservative. The old 3 mm double-counted the compression penalty.
+  { id: 'flex_nonmetal', name: 'Flexible, non-metallic', roughnessMm: 0.9, shapes: ['flexible'] },
+  { id: 'flex_insulated', name: 'Flexible, insulated', roughnessMm: 0.9, shapes: ['flexible'] },
 ];
 
 export const DEFAULT_MATERIAL = { circular: 'galv', rectangular: 'galv', flexible: 'flex_insulated' };
@@ -79,7 +85,7 @@ export const DEFAULT_MATERIAL = { circular: 'galv', rectangular: 'galv', flexibl
 /**
  * Flexible duct is only as good as its installation. Each option is a
  * longitudinal compression ratio, turned into a pressure-drop correction by the
- * measured, diameter-dependent `flexCompressionFactor` in engine.js.
+ * diameter-dependent `flexCompressionFactor` (ASHRAE Eq. 22) in engine.js.
  *
  * Where real installations sit:
  *   4 %  — properly installed and pulled taut. ACCA treats ≤4 % as "fully

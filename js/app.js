@@ -6,7 +6,7 @@
  * caret position survive a recalculation.
  */
 
-import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from './engine.js';
+import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign, FLEX_PDCF_RANGE_MM } from './engine.js';
 import {
   SPACE_TYPES,
   SYSTEM_TYPES,
@@ -1173,7 +1173,7 @@ function segmentCard(seg, index) {
         flexGroup,
         el('p', {
           class: 'hint',
-          text: 'Compression multiplies friction, worst on small sizes (LBNL): 15 % is about ×4 at Ø150–200. 15 % is typical of real installs; 4 % is pulled taut; 30 % is poor.',
+          text: 'Compression multiplies friction, worst on small sizes (ASHRAE Eq. 22): at 15 % about ×5 at Ø150, ×3.5 at Ø250, ×2.2 at Ø400. 15 % is typical of real installs; 4 % is pulled taut; 30 % is poor.',
         }),
       ])
     );
@@ -1567,6 +1567,14 @@ function update() {
     }
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
+    }
+    // ASHRAE Eq. 22 is fitted on 150–400 mm; below that the Ø150 factor is held.
+    if (result.shape === 'flexible' && result.heightMm < FLEX_PDCF_RANGE_MM[0]) {
+      flags.push({
+        level: 'info',
+        text: `Seg ${i}: Ø${fmt0(result.heightMm)} flex is below the ${FLEX_PDCF_RANGE_MM[0]} mm tested range — ` +
+          `the Ø${FLEX_PDCF_RANGE_MM[0]} compression factor is assumed, so treat its pressure drop as indicative.`,
+      });
     }
     // Sizing never leaves the configured size list, so a duty the list cannot
     // serve has to be said out loud rather than met with an invented size.

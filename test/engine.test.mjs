@@ -42,6 +42,7 @@ import {
   FLEX_SIZES,
   FLEX_MAX_FRICTION,
   FLEX_MAX_VELOCITY,
+  MATERIALS,
 } from '../js/data.js';
 
 /* The acoustic scale runs from the tightest room to the least critical.
@@ -1015,15 +1016,38 @@ test('worked example: 250 l/s commercial branch, Ø250, 12 m, 3 bends', () => {
 
 // ---- LBNL size-dependent flexible duct compression (PDCF = 1 + k*rc) ----
 
-test('LBNL compression factor matches the published k values and interpolates', () => {
-  close(flexCompressionFactor(150, 0.15), 1 + 25.35 * 0.15, 1e-9, 'Ø150 @15%');
-  close(flexCompressionFactor(200, 0.15), 1 + 21.61 * 0.15, 1e-9, 'Ø200 @15%');
-  close(flexCompressionFactor(250, 0.3), 1 + 16.18 * 0.3, 1e-9, 'Ø250 @30%');
-  close(flexCompressionFactor(175, 0.1), 1 + ((25.35 + 21.61) / 2) * 0.1, 1e-9, 'Ø175 interpolates');
+test('compression factor is ASHRAE Fundamentals Eq. 22, held outside 150-400 mm', () => {
+  const eq22 = (D, rc) => 1 + 58 * rc * Math.exp(-0.00496 * D);
+  for (const D of [150, 200, 250, 300, 350, 400]) {
+    for (const rc of [0.04, 0.15, 0.3]) close(flexCompressionFactor(D, rc), eq22(D, rc), 1e-9, `Ø${D} @${rc}`);
+  }
+  // Research tables (07/11/2026): 15 % column 5.1 / 4.2 / 3.5 / 3.0 / 2.5 / 2.2.
+  [[150, 5.1], [200, 4.2], [250, 3.5], [300, 3.0], [350, 2.5], [400, 2.2]].forEach(([D, x]) =>
+    close(flexCompressionFactor(D, 0.15), x, 0.051, `Ø${D} @15 %`));
+  // Handbook check: 150-400 mm at 70 % extended loses 3-9x.
+  assert.ok(flexCompressionFactor(400, 0.3) > 3 && flexCompressionFactor(150, 0.3) < 9.5);
+  // Agrees with LBNL-49012's size-specific fits within ~7 %.
+  [[150, 25.35], [200, 21.61], [250, 16.18]].forEach(([D, k]) =>
+    assert.ok(Math.abs(flexCompressionFactor(D, 0.3) / (1 + k * 0.3) - 1) < 0.08, `Ø${D} vs LBNL`));
   close(flexCompressionFactor(100, 0.15), flexCompressionFactor(150, 0.15), 1e-9, 'below Ø150 holds');
-  close(flexCompressionFactor(400, 0.15), flexCompressionFactor(250, 0.15), 1e-9, 'above Ø250 holds');
-  close(flexCompressionFactor(200, 0), 1, 1e-9, 'zero compression is straight duct');
-  assert.ok(flexCompressionFactor(150, 0.15) > flexCompressionFactor(250, 0.15), 'small flex suffers more');
+  close(flexCompressionFactor(600, 0.15), flexCompressionFactor(400, 0.15), 1e-9, 'above Ø400 holds');
+  close(flexCompressionFactor(200, 0), 1, 1e-9, 'zero compression is stretched duct');
+});
+
+test('stretched non-metallic flex reproduces the research baseline (ε 0.9 mm)', () => {
+  // Fully stretched, 3.5 m/s: 150 mm 1.68, 200 mm 1.16, 250 mm 0.87 Pa/m.
+  const insulated = MATERIALS.find((m) => m.id === 'flex_insulated');
+  assert.equal(insulated.roughnessMm, 0.9);
+  [[150, 1.68], [200, 1.16], [250, 0.87], [400, 0.47]].forEach(([D, pa]) => {
+    const q = 3.5 * Math.PI * (D / 1000) ** 2 / 4;
+    close(roundHydraulics(q, D / 1000, 0.0009, STANDARD_AIR).frictionRate, pa, 0.03 * pa + 0.01, `Ø${D}`);
+  });
+  // 15 % at 3.5 m/s: 8.7 / 4.9 / 3.1 ... 1.0 Pa/m.
+  [[150, 8.7], [200, 4.9], [250, 3.1], [400, 1.0]].forEach(([D, pa]) => {
+    const q = 3.5 * Math.PI * (D / 1000) ** 2 / 4;
+    const f = roundHydraulics(q, D / 1000, 0.0009, STANDARD_AIR).frictionRate * flexCompressionFactor(D, 0.15);
+    close(f, pa, 0.05 * pa + 0.05, `Ø${D} @15 %`);
+  });
 });
 
 test('flex conditions are 4/10/15/30 % with 15 % the default', () => {
@@ -1035,7 +1059,7 @@ test('flex conditions are 4/10/15/30 % with 15 % the default', () => {
 
 const flexCtx = (compression, over = {}) =>
   ctx({
-    roughness: 0.003,
+    roughness: 0.0009,
     flexCompression: compression,
     targetFriction: FLEX_MAX_FRICTION,
     maxVelocity: FLEX_MAX_VELOCITY,

@@ -1090,3 +1090,66 @@ Result, 4 m runout:
 Up to 15 %, velocity governs and compression barely moves the size; the
 backstop bites on small flex and at 30 %. The friction penalty still shows in
 the run's pressure drop, which is where it belongs.
+
+## 17. Flexible duct: ASHRAE Eq. 22 and a stretched baseline (07/11/2026)
+
+§16's model overstated flex friction twice over, found by reconciling it against
+a researched basis (sources below).
+
+**1. Large sizes.** LBNL's fits stop at Ø250, and §16 held that value above it.
+ASHRAE Fundamentals (2009 SI, Duct Design, Eq. 22, from Culp RP-1333) covers
+150–400 mm:
+
+  PDCF = 1 + 58 · rc · e^(−0.00496 D)
+
+| Ø | §16 ×@15 % | Eq. 22 ×@15 % | ×@4 % | ×@30 % |
+|---|---|---|---|---|
+| 150 | 4.80 | 5.13 | 2.1 | 9.3 |
+| 200 | 4.24 | 4.23 | 1.9 | 7.5 |
+| 250 | 3.43 | 3.52 | 1.7 | 6.0 |
+| 300 | 3.43 | 2.96 | 1.5 | 4.9 |
+| 350 | 3.43 | 2.53 | 1.4 | 4.1 |
+| 400 | 3.43 | 2.20 | 1.3 | 3.4 |
+
+At Ø400 §16 was 56 % high. Eq. 22 agrees with LBNL-49012 (primary) within ~7 %
+where both exist. Outside 150–400 mm D is held at the end; below Ø150 the app
+shows a note that the pressure drop is indicative.
+
+**2. Double-counted roughness.** PDCF is relative to stretched flex, but §16
+multiplied it onto ε 3 mm. Measured stretched flex is near sheet metal (Weaver &
+Culp 2007, ±2 %) and LBNL measured 10–35 % below a 0.9 mm baseline. Non-metallic
+and insulated flex now take ε 0.9 mm (ASHRAE "medium rough" — recalled category
+value, not read). Metallic flex stays 1.2 mm.
+
+Combined, 15 % at 3.5 m/s:
+
+| Ø | §16 Pa/m | Now | Research table |
+|---|---|---|---|
+| 150 | 11.7 | 8.7 | 8.7 |
+| 200 | 7.0 | 4.9 | 4.9 |
+| 300 | 3.3 | 2.0 | 2.0 |
+| 400 | 2.2 | 1.05 | 1.0 |
+
+**Effect on sizing** (4 m runout, 8 Pa/m ceiling unchanged):
+
+| l/s | 4 % | 10 % | 15 % | 30 % |
+|---|---|---|---|---|
+| 30 | Ø125 2.3 | Ø125 4.0 | Ø125 5.5 | Ø150 3.9 |
+| 60 | Ø150 3.4 | Ø150 6.0 | Ø160 5.6 | Ø200 2.7 |
+| 100 | Ø200 1.8 | Ø200 3.0 | Ø200 4.1 | Ø200 7.2 |
+| 150 | Ø250 1.1 | Ø250 1.8 | Ø250 2.4 | Ø250 4.0 |
+| 400 | Ø400 0.5 | Ø400 0.7 | Ø400 0.9 | Ø400 1.4 |
+
+Two sizes come down against §16 (60 l/s @10 % Ø160→Ø150; 100 l/s @30 %
+Ø250→Ø200); the Ø150→Ø160 step at 60 l/s @15 % stays. Critical-run pressure
+drops through flex fall by roughly 30–50 %.
+
+**Caveats.** Eq. 22 and its validity range were read from secondary
+reproductions of the Handbook; Culp's data scatter ±20–30 %; straight duct only
+— bends are carried as fittings. AIRAH's "2× measured length" allowance equals
+PDCF 2, i.e. ~4 % at Ø150, and under-allows on a typical site; the app does not
+use it.
+
+Sources: ASHRAE Fundamentals 2009 SI Eq. 22 (reproduction); Idem et al. on
+RP-1333; LBNL-49012 (escholarship qt0d76400v); Weaver & Culp 2007 (abstract);
+AIRAH sw022.
