@@ -54,10 +54,21 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Bedroom / hotel room | NR 25 | 5.0 | 4.0 | 2.5 |
 | Living room / study | NR 30 | 6.0 | 5.0 | 3.0 |
 | Private office / meeting / classroom | NR 35 | 7.5 | 6.0 | 4.0 |
-| Open-plan office | NR 38 | 8.5 | 7.0 | 4.5 |
-| Retail / restaurant / circulation | NR 40 | 9.0 | 7.5 | 5.0 |
-| Toilet / back-of-house / riser / plant | NR 45+ | 12.0 | 9.0 | 6.0 |
-| Commercial kitchen | NR 45+ | 12.0 | 8.0 | 8.0 |
+| Open-plan office | NR 38 | 8.0 | 7.0 | 4.5 |
+| Retail / restaurant / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
+| Toilet / back-of-house / riser / plant | NR 45+ | 10.0 | 8.0 | 6.0 |
+| Commercial kitchen | NR 45+ | 10.0 | 8.0 | 8.0 |
+
+Reconciled against AIRAH Skills Workshop sw123 Table 1 and ASHRAE *HVAC
+Applications* 2023 Ch 49 Table 8, both read from the primary documents. AIRAH's
+table is framed as **absolute maxima** and caps the riser column at 10.0 m/s at
+every NR, which is what sets the bottom two rows. CIBSE remains secondary —
+Guide B2 is paywalled — so its values are cross-checks, not authority. The full
+working, including what changed and why, is in `docs/CALCULATION-REVIEW.md` §11.
+
+**Flexible duct is capped at 3.5 m/s** on top of all this — AIRAH sw022, which
+calls it reasonable present-day practice. It binds under most spaces' runout
+figures.
 
 Commercial kitchen sits outside that scale deliberately. The duct runs in a space
 where the canopy fans and the appliances already dominate, so the duct isn't what
@@ -301,8 +312,9 @@ Guide B Table 3.4, which caps velocity in risers and above ceilings at
 5 / 7.5 / 10 m/s for acoustically critical / normal / non-critical rooms; the NR
 bands interpolate across that range. CIBSE Guide B2 Table 2.16 gives a general
 office 6.0 m/s in the branch, 3.5 in the run-out and 2.5 at the diffuser.
-ASHRAE's acoustic table is more permissive and splits by shape — above a
-suspended acoustic ceiling, RC 35 allows 8.9 m/s rectangular against 15.2 round,
+ASHRAE's acoustic table (Applications 2023 Ch 49 Table 8, read from the primary)
+is more permissive and splits by shape — above a suspended acoustic ceiling,
+RC 35 allows 8.9 m/s rectangular against 15.2 round,
 because flat rectangular walls are mass-controlled and radiate low-frequency
 breakout noise while a round shell is stiffness-controlled and keeps it in.
 
@@ -314,9 +326,15 @@ noise — including air noise regenerated at fittings, which travels inside the
 duct to the terminal and is not attenuated by the duct wall at all. See
 `docs/CALCULATION-REVIEW.md` §7 for the working.
 
-**Every CIBSE and ASHRAE number here reached this app through a secondary
-source** — the originals are paywalled. Check them against the project
-specification before issuing anything.
+**AIRAH and ASHRAE have since been read from the primary documents; CIBSE has
+not** — Guide B2 is paywalled, so its figures here come from reproductions of
+Guide B (2005) Tables 3.2–3.5. Check against the project specification before
+issuing anything.
+
+Note also that CIBSE Guide B Table 3.4's 5 / 7.5 / 10 applies to *rectangular*
+duct in a riser or above a plasterboard ceiling. Circular gets 7 / 10 / 15, and
+above a suspended ceiling it drops to 3 / 5 / 6 — a tighter case this app does
+not model.
 
 The kitchen grease transport minimums are DW/172-style indicative defaults,
 pending confirmation against the specific kitchen and canopy design. Roughness

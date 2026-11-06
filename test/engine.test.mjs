@@ -858,6 +858,32 @@ test('the grease velocity band is flat across the roles', () => {
   assert.ok(systemType('grease').minVelocityTurndown < systemType('grease').minVelocity);
 });
 
+test('no space main exceeds the AIRAH absolute riser maximum', () => {
+  // AIRAH sw123 caps the riser column at 10.0 m/s at EVERY NR, and frames its
+  // table as absolute maxima rather than design recommendations. Back of house
+  // and Commercial kitchen both sat at 12.0 until the sources were read.
+  for (const space of SPACE_TYPES) {
+    assert.ok(
+      maxVelocity(space.id, 'main') <= 10.0 + 1e-9,
+      `${space.id} main ${maxVelocity(space.id, 'main')} exceeds the 10 m/s riser cap`
+    );
+  }
+});
+
+test('the commercial kitchen space does not contradict the grease system cap', () => {
+  // The grease cap masked this for grease ducts while make-up air through the
+  // same kitchen still read the space's 12 m/s.
+  const systemCap = systemType('grease').maxVelocity;
+  assert.ok(
+    maxVelocity('kitchen', 'main') <= 10.0 + 1e-9,
+    'the kitchen space may not sit above the AIRAH riser cap'
+  );
+  assert.ok(
+    maxVelocity('kitchen', 'main') >= systemCap,
+    'but it must leave room for the grease system cap, which is what should bind'
+  );
+});
+
 test('grease extract is held to a tighter aspect ratio than the project default', () => {
   assert.equal(systemType('grease').maxAspect, 2);
   assert.equal(systemType('standard').maxAspect, undefined, 'the project limit applies');

@@ -10,6 +10,7 @@ import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from 
 import {
   SPACE_TYPES,
   SYSTEM_TYPES,
+  FLEX_MAX_VELOCITY,
   DEFAULT_FRICTION_TARGET,
   DUCT_ROLES,
   DEFAULT_MATERIAL,
@@ -263,14 +264,20 @@ function systemMaxVelocityFor(systemId) {
 /**
  * The band the UI and sizing both work from.
  *
- * The maximum is whichever binds first — the space's acoustic limit or the
- * system's own. Grease extract carries both: DW/172 caps an extract main at
- * 9 m/s wherever it runs, and a tighter space caps it further still.
+ * The maximum is whichever binds first of three: the space's acoustic limit,
+ * the system's own (DW/172 caps a grease extract main at 9 m/s wherever it
+ * runs), and the flexible-duct cap. Flexible duct is the one shape with a
+ * published limit of its own — AIRAH sw022 at 3.5 m/s — and that binds under
+ * most spaces' runout figures.
  */
-function limitsFor(spaceId, systemId, roleKey) {
+function limitsFor(spaceId, systemId, roleKey, shape) {
   return {
     min: minVelocityFor(systemId),
-    max: Math.min(maxVelocityFor(spaceId, roleKey), systemMaxVelocityFor(systemId)),
+    max: Math.min(
+      maxVelocityFor(spaceId, roleKey),
+      systemMaxVelocityFor(systemId),
+      shape === 'flexible' ? FLEX_MAX_VELOCITY : Infinity
+    ),
   };
 }
 
@@ -579,7 +586,7 @@ function context(segment) {
   // role is read straight through; it no longer has a limit of its own.
   const roleKey = segment.role;
   // max comes from the SPACE (noise), min from the SYSTEM (grease transport).
-  const limits = limitsFor(state.spaceTypeId, state.systemTypeId, roleKey);
+  const limits = limitsFor(state.spaceTypeId, state.systemTypeId, roleKey, segment.shape);
 
   return {
     air,
@@ -1317,10 +1324,15 @@ function update() {
 
     const roleLabel =
       seg.shape === 'flexible' ? 'flexible duct' : DUCT_ROLES.find((r) => r.id === seg.role).name.toLowerCase();
+    // Attribute the cap to whatever actually binds. A bedroom runout (2.5) is
+    // tighter than the flexible cap (3.5), so naming AIRAH there would be wrong.
+    const capBy =
+      seg.shape === 'flexible' && Math.abs(ctx.limits.max - FLEX_MAX_VELOCITY) < 1e-9
+        ? 'flexible duct, AIRAH'
+        : `${space.short.toLowerCase()}, ${space.nr}`;
     $('.js-limit-hint', card).textContent = ctx.limits.min > 0
-      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s at design flow ` +
-        `(${space.short.toLowerCase()}, ${space.nr})`
-      : `${roleLabel}: max ${fmt(ctx.limits.max, 1)} m/s for ${space.short.toLowerCase()} (${space.nr})`;
+      ? `${roleLabel}: ${fmt(ctx.limits.min, 1)}–${fmt(ctx.limits.max, 1)} m/s at design flow (${capBy})`
+      : `${roleLabel}: max ${fmt(ctx.limits.max, 1)} m/s — ${capBy}`;
 
     $$('.js-fit-loss', card).forEach((node) => {
       const fit = result.fittings[Number(node.dataset.i)];
@@ -1515,7 +1527,7 @@ function update() {
     `barometric ${fmt0(air.pressurePa / 100)} mbar`;
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
-  const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main');
+  const band = limitsFor(state.spaceTypeId, state.systemTypeId, 'main', 'circular');
   $('#space-hint').textContent = isGrease
     ? `${space.useCase} · constant friction, target ${fmt(frictionTarget(), 1)} Pa/m · ` +
       `${fmt(band.min, 1)}–${fmt(band.max, 1)} m/s at design flow, floor overrides Pa/m on small flows`

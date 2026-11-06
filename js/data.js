@@ -159,7 +159,10 @@ export const SPACE_TYPES = [
     short: 'Open plan',
     useCase: 'Open-plan workspace, where background level is higher',
     nr: 'NR 38',
-    roles: { main: 8.5, branch: 7.0, runout: 4.5 },
+    // AIRAH sw123 NR 40 is 8.0 / 7.0 / 5.5 as an ABSOLUTE maximum, and NR 38 is
+    // the stricter condition — 8.5 was over it. 8.0 sits inside AIRAH, ASHRAE
+    // and CIBSE together; the runout stays well under all three.
+    roles: { main: 8.0, branch: 7.0, runout: 4.5 },
   },
   {
     id: 'retail',
@@ -167,7 +170,10 @@ export const SPACE_TYPES = [
     short: 'Retail',
     useCase: 'Shops, restaurants, lobbies and corridors',
     nr: 'NR 40',
-    roles: { main: 9.0, branch: 7.5, runout: 5.0 },
+    // Was 9.0 / 7.5 / 5.0, which is AIRAH's NR 45 row, not its NR 40 row
+    // (8.0 / 7.0 / 5.5). CIBSE puts shops at 9.0 but bands them NR 40–45.
+    // NOTE: CIBSE puts restaurants a band LOWER, at NR 35–40, 7.5 / 6.0 / 3.5.
+    roles: { main: 8.0, branch: 7.0, runout: 5.0 },
   },
   {
     id: 'backhouse',
@@ -175,7 +181,12 @@ export const SPACE_TYPES = [
     short: 'Back of house',
     useCase: 'Risers, plant, stores, WCs — acoustically non-critical',
     nr: 'NR 45+',
-    roles: { main: 12.0, branch: 9.0, runout: 6.0 },
+    // AIRAH sw123 caps the RISER column at 10.0 m/s at every NR, as an absolute
+    // maximum, and CIBSE's industrial row is 10.0 / 8.0 / 5.0 — 12.0 was 20 %
+    // over both. 10.0 / 8.0 / 6.0 is AIRAH's NR 50 row exactly. ASHRAE would
+    // allow far more (17.8 m/s rectangular in a shaft at RC 45), but only
+    // ASHRAE does, and only for that location.
+    roles: { main: 10.0, branch: 8.0, runout: 6.0 },
   },
   {
     // Deliberately NOT part of the acoustic scale above, which runs from the
@@ -194,7 +205,16 @@ export const SPACE_TYPES = [
     short: 'Kitchen',
     useCase: 'Inside the kitchen — canopy fans and appliances dominate',
     nr: 'NR 45+',
-    roles: { main: 12.0, branch: 8.0, runout: 8.0 },
+    // No acoustic table covers kitchen extract, so these are the AIRAH riser
+    // cap (10.0 m/s absolute, at every NR) rather than a published kitchen
+    // figure. 12.0 was above it, and above the 9 m/s the grease system itself
+    // allows — the grease cap masked the contradiction for grease ducts while
+    // make-up air through the same kitchen still read 12.
+    //
+    // 10.0 on the main leaves room for the "≤10 m/s on a short riser if noise
+    // allows" case in the design basis: raise the SYSTEM cap from 9 to 10 for
+    // that job and the space no longer stands in the way.
+    roles: { main: 10.0, branch: 8.0, runout: 8.0 },
   },
 ];
 
@@ -282,6 +302,21 @@ export const SYSTEM_TYPES = [
 
 /** Project-wide friction target, Pa/m — the main driver of duct size. */
 export const DEFAULT_FRICTION_TARGET = 1.0;
+
+/**
+ * Velocity cap for flexible duct, m/s — AIRAH sw022, which calls it reasonable
+ * present-day practice to limit a flexible runout to this.
+ *
+ * The per-space flexible entries removed earlier were inert and unsourced; this
+ * is neither. It binds where a space's runout limit is looser than 3.5 — retail
+ * (5.0), back of house (6.0) — which is most of them.
+ *
+ * The same source allows twice the measured length when working out flexible
+ * friction. That is a second model alongside the compression factors in
+ * `FLEX_CONDITIONS`, not a replacement: x2 on length is the same arithmetic as
+ * the "15 % compressed" x2 on rate over a given run.
+ */
+export const FLEX_MAX_VELOCITY = 3.5;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },

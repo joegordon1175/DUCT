@@ -731,3 +731,103 @@ Nothing now uses the engine's `'velocity'` sizing method: `snapFloor`,
 `velocityCapSource` / `frictionCeiling` outputs are all unreachable from the app.
 They are still covered by tests and still correct; they are simply no longer
 wired to anything.
+
+---
+
+## 11. Consensus pass: AIRAH, CIBSE, ASHRAE (07/11/2026)
+
+The velocity table was finally read against the primary documents — AIRAH Skills
+Workshop sw123 and sw022, and ASHRAE *HVAC Applications* 2023 Ch 49 Tables 8
+and 9. CIBSE remains secondary (Guide B2 is £100 behind a paywall), as do the
+AS 1668 clause numbers.
+
+**Four rows were wrong, and one was wrong against this app's own design basis.**
+
+### AIRAH sw123 Table 1 — the figure that moved things
+
+| Required NR | Riser | Main supply | Branch | Run-out | Return |
+|---|---|---|---|---|---|
+| 50 | 10.0 | 10.0 | 8.0 | 6.0 | 8.0 |
+| 45 | 10.0 | 9.0 | 7.0 | 6.0 | 7.0 |
+| 40 | 10.0 | 8.0 | 7.0 | 5.5 | 7.0 |
+| 35 | 10.0 | 7.5 | 6.5 | 5.0 | 6.5 |
+| 30 | 9.0 | 6.5 | 5.5 | 4.0 | 5.5 |
+
+Three things about it matter more than the numbers:
+
+- It is framed as **absolute maxima, not design recommendations**, and applies
+  only to systems over 1,000 l/s. Nothing else here is framed that way, so where
+  this app exceeded AIRAH it was exceeding a hard limit rather than a target.
+- **The riser column is capped at 10.0 m/s at every NR.** Two rows sat at 12.0.
+- Its lowest row is NR 30. There is no AIRAH figure for a bedroom.
+
+### What changed
+
+| Row | Was | Now | Why |
+|---|---|---|---|
+| Open-plan office, NR 38 | 8.5 / 7.0 / 4.5 | **8.0** / 7.0 / 4.5 | 8.5 exceeded AIRAH's NR 40 absolute maximum (8.0), and NR 38 is the stricter condition |
+| Retail / restaurant, NR 40 | 9.0 / 7.5 / 5.0 | **8.0 / 7.0** / 5.0 | was AIRAH's NR 45 row, not its NR 40 row |
+| Back of house, NR 45+ | 12.0 / 9.0 / 6.0 | **10.0 / 8.0** / 6.0 | 20 % over the AIRAH riser cap and over CIBSE's industrial row; now AIRAH's NR 50 row exactly |
+| Commercial kitchen | 12.0 / 8.0 / 8.0 | **10.0** / 8.0 / 8.0 | above the riser cap, and above the 9 m/s this app's own grease basis allows |
+
+The kitchen row is the one worth dwelling on. The grease system's own 9 m/s cap
+meant grease ducts never saw the space's 12.0 — `min(space, system)` quietly
+masked it. **Make-up air through the same kitchen did see it**, because the
+standard system has no cap of its own. An internal contradiction that only
+surfaced on one of the two paths through the code. Both regression tests added.
+
+Rows 1–3 came back inside the published spread and are unchanged.
+
+### Flexible duct gets a limit back, and this one is sourced
+
+AIRAH sw022 calls it reasonable present-day practice to limit a flexible runout
+to **3.5 m/s**. The per-space flexible entries dropped in §8 were inert and
+unsourced; this is neither, and it binds under most spaces' runout figures —
+retail (5.0), back of house (6.0). Added as a single global cap, attributed to
+whichever limit actually binds so a bedroom runout (2.5) is not blamed on AIRAH.
+
+The same source allows twice the measured length when working out flexible
+friction, which is the same arithmetic as the ×2 "15 % compressed" factor in
+`FLEX_CONDITIONS` over a given run. Not a conflict; worth knowing.
+
+### Confirmed, and left alone
+
+- **1.0 Pa/m is defensible.** It sits between ASHRAE's usual 0.65–0.82 Pa/m and
+  Ahern's 1.2 Pa/m, which AIRAH's own text calls higher than many designers use.
+  At 1.0 the velocity cap only starts to govern around 1,850 l/s for 7.5 m/s and
+  3,700 l/s for 9 m/s — so the caps bind on large mains and little else.
+- **CIBSE Guide B Table 3.4's 5 / 7.5 / 10** is confirmed, but only for the
+  *rectangular* row of "riser or above plasterboard ceiling". Circular gets
+  7 / 10 / 15, and above a *suspended* ceiling it drops to 3 / 5 / 6 — a tighter
+  case this app does not model.
+- **ASHRAE's 1750 / 3000 fpm at RC 35** is confirmed from the primary, which
+  settles §7's round-duct question: the ratio is real, it is Table 8, and it is
+  still not a constant (1.4–1.95 across the table).
+
+### The 80 / 50 role gradation is ASHRAE's, not universal
+
+| Source | Branch ÷ main | Runout ÷ main |
+|---|---|---|
+| ASHRAE | 0.80 (stated rule) | ≤0.50 (stated rule) |
+| AIRAH sw123 | 0.78–0.87 | 0.60–0.69 |
+| CIBSE | 0.78–0.92 | ≈0.47–0.50 |
+| This app | 0.67–0.88 | 0.50–0.67 |
+
+§7 recorded the gradation as "corroborated by ASHRAE". It is corroborated by
+ASHRAE specifically; AIRAH allows runouts 20–35 % faster than the 50 % rule.
+
+### Open, and now narrower
+
+- **CIBSE B2 (2016) Tables 2.17–2.19** — values unread; §2 of the research used
+  Guide B (2005) Tables 3.2–3.5 as the stand-in. Table 2.16's title and first two
+  rows were confirmed to match.
+- **AIRAH DA03** velocity table — paywalled. The reported 10 m/s kitchen minimum
+  is neither confirmed nor refuted; no source found states it.
+- **ASHRAE Fundamentals Ch 21** — unreachable; whether it carries its own
+  velocity table is unknown.
+- **AS 1668.2 and 1668.1 clause text** — paywalled. The absence of an in-duct
+  velocity requirement is consistent across every secondary source but remains
+  absence of evidence. The 2024 edition exists and has renumbered the kitchen
+  clauses, so cl. 5.10.3 is a 2002 reference.
+- **A restaurant is not a shop.** CIBSE puts restaurants at NR 35–40
+  (7.5 / 6.0 / 3.5), a band below shops. They share a row here.
