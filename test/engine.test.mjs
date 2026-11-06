@@ -15,8 +15,6 @@ import {
   snapDown,
   snapFloor,
   selectRectangular,
-  regeneratedNoise,
-  combineLevels,
   leakageRate,
   pressureClass,
   pressureClassDependsOnSign,
@@ -26,7 +24,15 @@ import {
   STANDARD_AIR,
 } from '../js/engine.js';
 
-import { ROUND_SIZES, RECT_SIZES, velocityLimits } from '../js/data.js';
+import {
+  ROUND_SIZES,
+  RECT_SIZES,
+  SPACE_TYPES,
+  SYSTEM_TYPES,
+  maxVelocity,
+  minVelocity,
+  systemType,
+} from '../js/data.js';
 
 const close = (actual, expected, tol, msg) =>
   assert.ok(
@@ -173,14 +179,26 @@ test('snapUp picks the next size at or above the value', () => {
   assert.equal(snapUp(260, SNAP_LIST), 300);
   assert.equal(snapUp(300, SNAP_LIST), 300, 'an exact match is used as-is');
   assert.equal(snapUp(301, SNAP_LIST), 400);
-  assert.equal(snapUp(600, SNAP_LIST), 600, 'past the list, rounds up to the next 50 mm');
+});
+
+test('the snap helpers never leave the list', () => {
+  // The list is what the supplier holds. Inventing a 50 mm multiple outside it
+  // produced sizes that cannot be bought — Ø1500 off a list ending at 1400, and
+  // worse at the bottom, a Ø100 round and a 50 mm wide rectangular duct.
+  assert.equal(snapUp(600, SNAP_LIST), 500, 'above the list, clamps to the largest size');
+  assert.equal(snapUp(99999, SNAP_LIST), 500);
+  assert.equal(snapDown(50, SNAP_LIST), 100, 'below the list, clamps to the smallest size');
+  assert.equal(snapDown(1, SNAP_LIST), 100);
+  assert.equal(snapFloor(80, 60, SNAP_LIST), 100, 'and through snapFloor too');
+  // Only an empty list has nothing to clamp to.
+  assert.equal(snapUp(260, []), 300);
+  assert.equal(snapDown(260, []), 250);
 });
 
 test('snapDown picks the previous size at or below the value', () => {
   assert.equal(snapDown(299, SNAP_LIST), 250);
   assert.equal(snapDown(300, SNAP_LIST), 300, 'an exact match is used as-is');
   assert.equal(snapDown(399, SNAP_LIST), 300);
-  assert.equal(snapDown(50, SNAP_LIST), 50, 'floors at 50 mm when smaller than every size');
 });
 
 test('snapFloor stays within the [floorMin, idealMax] range', () => {
@@ -188,9 +206,20 @@ test('snapFloor stays within the [floorMin, idealMax] range', () => {
   assert.equal(snapFloor(380, 200, SNAP_LIST), 300);
   // idealMax itself is in the list — used exactly.
   assert.equal(snapFloor(300, 200, SNAP_LIST), 300);
-  // Sparse list where nothing between the bounds exists: falls back to
-  // respecting the tighter (max-velocity) bound over the minimum.
-  assert.equal(snapFloor(320, 310, [200, 500]), 500);
+});
+
+test('snapFloor picks the nearer limit when the list skips the band', () => {
+  // Neither candidate is valid, so the only question is which limit to breach
+  // by less. A fixed priority gets this wrong in both directions.
+  //
+  // Band [310, 320] on [200, 500]: 200 is 1.55x under the cap diameter, 500 is
+  // 1.56x over the ideal — almost a tie, and 200 wins by a hair.
+  assert.equal(snapFloor(320, 310, [200, 500]), 200);
+  // Band [400, 550] on a coarse list: 300 would run ~3x the intended velocity,
+  // while 600 sits just 9 % over the ideal diameter. Take 600.
+  assert.equal(snapFloor(550, 400, [150, 300, 600, 900]), 600);
+  // Band [160, 450]: 150 misses the cap by 7 %, 500 misses the ideal by 11 %.
+  assert.equal(snapFloor(450, 160, [150, 500]), 150);
 });
 
 test('rectangular selection respects the aspect limit and area floor', () => {
@@ -253,34 +282,6 @@ test('rectangular floor sizing respects a height override and the band', () => {
     r.velocity >= 6 - 1e-6 && r.velocity <= 8 + 1e-6,
     `${r.label} = ${r.velocity.toFixed(2)} m/s, outside the 6–8 m/s band`
   );
-});
-
-/* ---------------------------------------------------------------- *
- * Noise
- * ---------------------------------------------------------------- */
-
-test('regenerated noise rises 15 dB per doubling of velocity', () => {
-  const a = regeneratedNoise(5, 0.05, 1);
-  const b = regeneratedNoise(10, 0.05, 1);
-  close(b - a, 50 * Math.log10(2), 1e-9, 'v⁵ law');
-});
-
-test('regenerated noise magnitude is plausible', () => {
-  // 5 m/s in a Ø250 duct — quiet residential branch
-  close(regeneratedNoise(5, 0.0491, 1), 31.9, 0.5);
-  // 10 m/s in a Ø400 duct — industrial main
-  close(regeneratedNoise(10, 0.1257, 1), 51.0, 0.5);
-});
-
-test('a mitred bend is noisier than a smooth one', () => {
-  assert.ok(regeneratedNoise(6, 0.05, 1.2) > regeneratedNoise(6, 0.05, 0.15) + 5);
-});
-
-test('combining equal levels adds 3 dB', () => {
-  close(combineLevels([50, 50]), 53.01, 0.01);
-  close(combineLevels([50, 50, 50, 50]), 56.02, 0.01);
-  close(combineLevels([]), 0, 1e-9);
-  close(combineLevels([60, 40]), 60.04, 0.01, 'quiet source barely counts');
 });
 
 /* ---------------------------------------------------------------- *
@@ -364,7 +365,6 @@ test('circular segment sizes, snaps and totals correctly', () => {
   close(r.straightLoss, r.frictionRate * 10, 1e-9, 'straight loss = rate × length');
   close(r.fittingLoss, 2 * 0.15 * r.velocityPressure, 1e-9, 'fitting loss = n·ζ·Pv');
   close(r.totalLoss, r.straightLoss + r.fittingLoss, 1e-9, 'segment total');
-  assert.ok(r.noiseLwA > 0);
 });
 
 test('diameter override is respected exactly', () => {
@@ -565,7 +565,89 @@ test('zero airflow degrades gracefully', () => {
   const r = calcSegment({ airflowLps: 0, shape: 'circular', lengthM: 5 }, ctx());
   assert.ok(Number.isFinite(r.totalLoss), 'no NaN');
   assert.equal(r.totalLoss, 0);
-  assert.equal(r.noiseLwA, 0);
+});
+
+/* ---------------------------------------------------------------- *
+ * Sizing never leaves the configured size list
+ * ---------------------------------------------------------------- */
+
+test('a duty the size list cannot serve is reported, not met with an unlisted size', () => {
+  // Below the smallest listed size nothing can hold the transport minimum, and
+  // saying so is the honest answer. Ø63 is the smallest in TEST_ROUND and only
+  // reaches 7.5 m/s at ~23 l/s; on the shipped list Ø150 needs 133 l/s, which is
+  // an ordinary small-canopy duty. Previously this fabricated a Ø100 round and a
+  // 50 mm wide rectangular duct, unflagged, and made the selection
+  // non-monotonic: more airflow gave a bigger duct and a LOWER velocity.
+  const velCtx = ctx({ method: 'velocity', targetVelocity: 7.5, maxVelocity: 12 });
+  let lastVelocity = 0;
+  for (const airflowLps of [5, 10, 15, 20, 23]) {
+    const r = calcSegment({ airflowLps, shape: 'circular', lengthM: 5 }, velCtx);
+    assert.ok(TEST_ROUND.includes(r.heightMm), `Ø${r.heightMm} must be a listed size`);
+    assert.equal(r.sizeLimited, true, `${airflowLps} l/s cannot reach the minimum`);
+    assert.equal(r.belowMinVelocity, true);
+    assert.ok(r.velocity > lastVelocity, 'more airflow must not give a lower velocity');
+    lastVelocity = r.velocity;
+  }
+  // Rectangular too: 100 mm is the smallest listed, never 50. 100 x 100 holds
+  // 7.5 m/s only from 75 l/s up.
+  for (const airflowLps of [20, 40, 60]) {
+    const r = calcSegment({ airflowLps, shape: 'rectangular', lengthM: 5 }, velCtx);
+    assert.ok(TEST_RECT.includes(r.widthMm), `width ${r.widthMm} must be listed`);
+    assert.ok(TEST_RECT.includes(r.heightMm), `height ${r.heightMm} must be listed`);
+  }
+  // And once the duty is servable, nothing is flagged.
+  const ok = calcSegment({ airflowLps: 250, shape: 'circular', lengthM: 5 }, velCtx);
+  assert.equal(ok.sizeLimited, false);
+  assert.equal(ok.ruleMet, true);
+});
+
+test('a duty past the top of the list is reported, not rounded to an unlisted size', () => {
+  const big = calcSegment({ airflowLps: 30000, shape: 'circular', lengthM: 5 }, ctx());
+  assert.equal(big.heightMm, TEST_ROUND[TEST_ROUND.length - 1], 'clamped to the largest listed size');
+  assert.equal(big.sizeLimited, true);
+  assert.ok(big.exceedsFrictionTarget || big.exceedsMaxVelocity);
+});
+
+test('an override that misses the target is reported but is not a list limit', () => {
+  // The user chose this size, so the fix is not "add sizes to your list".
+  const r = calcSegment({ airflowLps: 500, shape: 'circular', lengthM: 5, heightMm: 200 }, ctx());
+  assert.equal(r.sizedBy, 'diameter overridden');
+  assert.equal(r.ruleMet, false);
+  assert.equal(r.exceedsFrictionTarget, true);
+  assert.equal(r.sizeLimited, false);
+});
+
+test('equivalent length covers fittings only, not fixed-Pa components', () => {
+  // A dirty filter is not 260 m of duct, which is what the combined figure read.
+  const r = calcSegment(
+    {
+      airflowLps: 400,
+      shape: 'circular',
+      lengthM: 10,
+      fittings: [{ zeta: 0.15, qty: 3 }, { fixedPa: 150, qty: 1 }],
+    },
+    ctx()
+  );
+  const zetaOnly = 3 * 0.15 * r.velocityPressure;
+  close(r.fittingsEquivalentLengthM, zetaOnly / r.frictionRate, 1e-9);
+  assert.ok(
+    r.equivalentLengthM > r.fittingsEquivalentLengthM * 10,
+    'the combined figure is kept for continuity and is much larger'
+  );
+});
+
+test('rectangular Reynolds is the duct own, not the equivalent round pipe', () => {
+  const r = calcSegment(
+    { airflowLps: 1500, shape: 'rectangular', lengthM: 10, widthMm: 600, heightMm: 400 },
+    ctx()
+  );
+  const Dh = (2 * 0.6 * 0.4) / (0.6 + 0.4);
+  close(r.reynolds, (r.velocity * Dh) / STANDARD_AIR.kinematic, 1, 'on Dh and actual velocity');
+  // The friction factor is taken at the circular equivalent, so that Re is
+  // reported separately rather than conflated with the duct own.
+  assert.ok(r.reynoldsEquivalent > r.reynolds * 1.1, 'and they genuinely differ');
+  const round = calcSegment({ airflowLps: 500, shape: 'circular', lengthM: 5 }, ctx());
+  assert.equal(round.reynoldsEquivalent, round.reynolds, 'equal for round duct');
 });
 
 /* ---------------------------------------------------------------- *
@@ -586,26 +668,90 @@ test('run totals sum the segments and apply the fan margin', () => {
   close(run.maxVelocity, Math.max(...segs.map((s) => s.velocity)), 1e-9);
   close(run.lengthM, 22, 1e-9);
   assert.equal(run.segments, 3);
-  assert.ok(run.noiseLwA >= Math.max(...segs.map((s) => s.noiseLwA)), 'noise combines up');
   assert.ok(run.leakageLps > 0 && run.leakagePct > 0, 'leakage estimated');
-  close(run.roomSpl, run.noiseLwA - 9, 1e-9, 'room correction applied');
+});
+
+test('leakage is taken on duct pressure, not the fan total', () => {
+  // The plant allowance is a coil or filter, not duct static pressure. Folding
+  // it in read 3.7x high on 450 Pa of plant and 5.5x high on 900 Pa.
+  const segs = [calcSegment({ airflowLps: 500, shape: 'circular', lengthM: 20 }, ctx())];
+  const bare = calcRun(segs, { plantPa: 0, leakageClass: 'B' });
+  for (const plantPa of [150, 450, 900]) {
+    const run = calcRun(segs, { plantPa, leakageClass: 'B' });
+    close(run.leakageLps, bare.leakageLps, 1e-9, `plant ${plantPa} Pa must not move leakage`);
+    close(run.totalPa, run.ductPa + plantPa, 1e-9, 'but it still counts toward the fan');
+  }
+  close(
+    bare.leakageLps,
+    leakageRate(bare.ductPa / 2, 'B') * bare.surfaceArea,
+    1e-9,
+    'mean duct pressure basis'
+  );
 });
 
 test('empty run is safe', () => {
   const run = calcRun([], {});
   assert.equal(run.totalPa, 0);
   assert.equal(run.leakagePct, 0);
-  assert.equal(run.noiseLwA, 0);
 });
 
 /* ---------------------------------------------------------------- *
  * Design data sanity
  * ---------------------------------------------------------------- */
 
-test('velocity limits tighten from industrial to residential', () => {
-  assert.ok(velocityLimits('residential', 'main').max < velocityLimits('commercial', 'main').max);
-  assert.ok(velocityLimits('commercial', 'main').max < velocityLimits('industrial', 'main').max);
-  assert.ok(velocityLimits('commercial', 'runout').max < velocityLimits('commercial', 'main').max);
+test('the acoustic maxima loosen monotonically as the space gets less critical', () => {
+  // The space list is ordered from the tightest acoustic case (bedroom) to the
+  // least critical (riser/plant). If that order ever stops being monotonic the
+  // list has been edited into something that no longer reads as a scale.
+  for (const role of ['main', 'branch', 'runout']) {
+    for (let i = 1; i < SPACE_TYPES.length; i++) {
+      const prev = maxVelocity(SPACE_TYPES[i - 1].id, role);
+      const here = maxVelocity(SPACE_TYPES[i].id, role);
+      assert.ok(
+        here >= prev,
+        `${role}: ${SPACE_TYPES[i].id} (${here}) must not be tighter than ${SPACE_TYPES[i - 1].id} (${prev})`
+      );
+    }
+  }
+});
+
+test('within a space, a main is allowed to run faster than a runout', () => {
+  for (const space of SPACE_TYPES) {
+    assert.ok(
+      maxVelocity(space.id, 'main') > maxVelocity(space.id, 'branch'),
+      `${space.id}: main > branch`
+    );
+    assert.ok(
+      maxVelocity(space.id, 'branch') > maxVelocity(space.id, 'runout'),
+      `${space.id}: branch > runout`
+    );
+  }
+});
+
+test('only kitchen grease extract carries a minimum velocity', () => {
+  // Constant friction already picks the smallest duct that holds the target, so
+  // a friction system needs no floor — a second constraint saying the same
+  // thing. Grease transport is the one case where the minimum is physical.
+  for (const system of SYSTEM_TYPES) {
+    const hasMin = system.id === 'kitchen';
+    for (const role of ['main', 'branch', 'runout']) {
+      assert.equal(
+        minVelocity(system.id, role) > 0,
+        hasMin,
+        `${system.id} ${role}`
+      );
+    }
+  }
+  assert.equal(systemType('standard').sizingMethod, 'friction');
+  assert.equal(systemType('kitchen').sizingMethod, 'velocity');
+  assert.equal(systemType('kitchen').allowsFlexible, false, 'no flex on grease extract');
+});
+
+test('the grease minimum falls from main to runout', () => {
+  // The main/riser is the longest, least accessible part of the run and the
+  // hardest to clean, so it carries the highest minimum.
+  assert.ok(minVelocity('kitchen', 'main') >= minVelocity('kitchen', 'branch'));
+  assert.ok(minVelocity('kitchen', 'branch') >= minVelocity('kitchen', 'runout'));
 });
 
 test('standard size lists are sorted ascending', () => {

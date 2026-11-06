@@ -64,96 +64,163 @@ export const FLEX_CONDITIONS = [
 ];
 
 /* ------------------------------------------------------------------ *
- * Space types & duct roles — sizing method, and velocity/friction targets
+ * Space types, system types & duct roles
  * ------------------------------------------------------------------ *
- * Each space type has a FIXED sizing method — this isn't a free per-project
- * toggle, because the two methods serve different physical requirements:
+ * Two separate settings, because two different physical causes are at work:
  *
- *   'friction' (Residential, Commercial) — sizes to a constant friction
- *   rate. Velocity is only ever a check afterwards: `recommended` is a soft
- *   comfort/noise ceiling, `max` a hard one.
+ *   SPACE SERVED sets the MAXIMUM velocity. Noise is the only thing driving
+ *   the upper band, and the noise requirement belongs to the space, not to the
+ *   building — a hotel bedroom and a house bedroom want the same figure, an
+ *   open-plan office and a classroom want the same, and a riser is a riser in
+ *   both. Sorting by "Residential / Commercial" was a building label doing a
+ *   job that belongs to the space, which is why it kept mis-fitting: it put a
+ *   boardroom and a car park in the same bucket.
  *
- *   'velocity' (Industrial — kitchen extract) — sizes to `recommended` as a
- *   MINIMUM transport velocity instead, and standard sizes snap down rather
- *   than up (see `snapFloor` in engine.js) so the built duct can't fall
- *   below it. Air moving slower than this lets grease settle out and foul
- *   the duct — a fire risk, not just a maintenance one. `max` here caps
- *   erosion and noise instead.
+ *   SYSTEM sets the sizing METHOD. Only kitchen grease extract differs:
+ *   everything else — comfort A/C, fresh air, general and toilet extract —
+ *   sizes to the same constant friction rate, so they are one system here
+ *   rather than three identical ones.
  *
- * `roles` covers the three duct positions (main/branch/runout) plus a
- * separate `flex` entry: flexible duct is rougher and usually shorter, so it
- * gets its own limits applied whenever a segment's shape is 'flexible',
- * regardless of which role is selected for it.
+ * There is deliberately NO minimum velocity on the friction system. Constant
+ * friction already picks the smallest duct that holds the target, so the
+ * target is the anti-oversize control; a separate floor would be a second
+ * constraint saying the same thing. Kitchen grease extract is the exception,
+ * where the minimum is a transport requirement, not an economic one.
  *
- * These are indicative starting points (CIBSE Guide B3 / ASHRAE recommended
- * maxima for the friction-mode spaces; DW/172-style kitchen grease extract
- * transport velocities for Industrial) — the app lets every number here be
- * edited and reset per space type in Settings.
- */
+ * The friction target itself is a single project-wide setting (1.0 Pa/m by
+ * default), not a per-space one: with noise handled by the velocity cap there
+ * is no reason for it to vary by room. It is the main driver of duct size.
+ *
+ * These velocity limits are the app's ONLY noise control. The regenerated-noise
+ * estimate was removed (see the note in engine.js) because it could not be made
+ * trustworthy without octave-band terminal data. Keeping velocities inside these
+ * figures is how CIBSE Guide B and ASHRAE present the control anyway; an actual
+ * acoustic assessment needs manufacturers' sound-power data, not this app.
+ *
+ * SOURCES AND THEIR LIMITS. The backbone is CIBSE Guide B Table 3.4, which caps
+ * velocity in risers and above ceilings at 5 / 7.5 / 10 m/s for acoustically
+ * critical / normal / non-critical rooms; the NR bands below interpolate across
+ * that range. CIBSE Guide B2 Table 2.16 gives a general office 6.0 m/s in the
+ * branch, 3.5 in the run-out and 2.5 at the diffuser. ASHRAE's acoustic table is
+ * more permissive and splits by shape — above a suspended acoustic ceiling,
+ * RC 35 allows 8.9 m/s rectangular against 15.2 round, because flat rectangular
+ * walls are mass-controlled and radiate low-frequency breakout noise, while a
+ * round shell is stiffness-controlled and keeps it inside the duct.
+ *
+ * This app uses ONE figure for both shapes, deliberately. The round allowance is
+ * not a constant to multiply by: across ASHRAE's own table the ratio runs about
+ * 1.4 to 1.95 depending on RC level and where the duct sits. More importantly it
+ * is an allowance against BREAKOUT specifically, and the single limit here is
+ * standing in for all duct noise — including air noise regenerated at fittings,
+ * which travels inside the duct to the terminal and is not attenuated by the
+ * duct wall at all. Applying a breakout ratio to a limit that is not a breakout
+ * model would claim more accuracy than the method has.
+ *
+ * Every one of these numbers reached this file through a SECONDARY source: the
+ * CIBSE and ASHRAE originals are paywalled. Check them against the project
+ * specification before issuing anything. All are editable in Settings.
+ * ------------------------------------------------------------------ */
 
+/**
+ * Maximum velocity by space served and duct role, m/s.
+ *
+ * One number per role, not a recommended/maximum pair: there is a single
+ * acoustic limit, and the app shades the reading amber within 10 % of it rather
+ * than asking for a second figure that would only be the same judgement twice.
+ */
 export const SPACE_TYPES = [
   {
-    id: 'residential',
-    name: 'Residential',
-    short: 'Residential',
-    useCase: 'Homes & apartments',
-    sizingMethod: 'friction',
-    targetFriction: 0.8, // Pa/m
-    noiseLimitDba: 30, // ≈ NR 25
-    noiseCriterion: 'NR 25',
-    roles: {
-      main: { recommended: 4.0, max: 5.0 },
-      branch: { recommended: 3.0, max: 3.5 },
-      runout: { recommended: 2.0, max: 2.5 },
-      flex: { recommended: 2.0, max: 2.5 },
-    },
+    id: 'bedroom',
+    name: 'Bedroom / hotel room',
+    short: 'Bedroom',
+    useCase: 'Sleeping spaces — the tightest acoustic case',
+    nr: 'NR 25',
+    roles: { main: 5.0, branch: 4.0, runout: 2.5, flex: 2.5 },
   },
   {
-    id: 'commercial',
-    name: 'Commercial',
-    short: 'Commercial',
-    useCase: 'Offices, retail & general ventilation',
-    sizingMethod: 'friction',
-    targetFriction: 1.0,
-    noiseLimitDba: 40, // ≈ NR 35
-    noiseCriterion: 'NR 35',
-    roles: {
-      main: { recommended: 6.0, max: 8.0 },
-      branch: { recommended: 4.5, max: 6.0 },
-      runout: { recommended: 3.0, max: 4.0 },
-      flex: { recommended: 3.0, max: 4.0 },
-    },
+    id: 'living',
+    name: 'Living room / study',
+    short: 'Living',
+    useCase: 'Living rooms, studies, consulting rooms',
+    nr: 'NR 30',
+    roles: { main: 6.0, branch: 5.0, runout: 3.0, flex: 3.0 },
   },
   {
-    id: 'industrial',
-    name: 'Kitchen Extract',
-    short: 'Kitchen',
-    useCase: 'Commercial kitchens & canopies',
-    sizingMethod: 'velocity',
-    // Flexible duct is not normally fire-code permitted for grease extract
-    // (e.g. NFPA 96/DW/172), so it is not offered as a duct type here — and
-    // its velocity limits are hidden in Settings, since nothing could use them.
-    allowsFlexible: false,
-    noiseLimitDba: 50, // ≈ NR 45
-    noiseCriterion: 'NR 45',
-    roles: {
-      // "recommended" is a MINIMUM transport velocity, not a soft ceiling —
-      // see the file-level note above. Confirm against DW/172 and the
-      // appliance duty before specifying.
-      //
-      // The main/riser carries the highest minimum because it is the longest,
-      // least accessible part of the run and the hardest to clean; branches
-      // and runouts are shorter and reachable, so they sit lower.
-      main: { recommended: 7.5, max: 12.0 },
-      branch: { recommended: 6.0, max: 8.0 },
-      runout: { recommended: 6.0, max: 8.0 },
-      // Unused: flexible duct is disallowed here (`allowsFlexible: false`), so
-      // this row is hidden in Settings. Kept so the defaults map stays a
-      // complete shape for every role key.
-      flex: { recommended: 6.0, max: 8.0 },
-    },
+    id: 'office',
+    name: 'Private office / meeting / classroom',
+    short: 'Office',
+    useCase: 'Cellular offices, meeting rooms, teaching spaces',
+    nr: 'NR 35',
+    roles: { main: 7.5, branch: 6.0, runout: 4.0, flex: 4.0 },
+  },
+  {
+    id: 'openplan',
+    name: 'Open-plan office',
+    short: 'Open plan',
+    useCase: 'Open-plan workspace, where background level is higher',
+    nr: 'NR 38',
+    roles: { main: 8.5, branch: 7.0, runout: 4.5, flex: 4.5 },
+  },
+  {
+    id: 'retail',
+    name: 'Retail / restaurant / circulation',
+    short: 'Retail',
+    useCase: 'Shops, restaurants, lobbies and corridors',
+    nr: 'NR 40',
+    roles: { main: 9.0, branch: 7.5, runout: 5.0, flex: 5.0 },
+  },
+  {
+    id: 'backhouse',
+    name: 'Toilet / back-of-house / riser / plant',
+    short: 'Back of house',
+    useCase: 'Risers, plant, stores, WCs — acoustically non-critical',
+    nr: 'NR 45+',
+    roles: { main: 12.0, branch: 9.0, runout: 6.0, flex: 6.0 },
   },
 ];
+
+/**
+ * Sizing method by system. Only two, because comfort A/C, fresh air and general
+ * extract all size identically — to the project friction target.
+ */
+export const SYSTEM_TYPES = [
+  {
+    id: 'standard',
+    name: 'Air conditioning / ventilation',
+    short: 'A/C · vent',
+    useCase: 'Comfort A/C, fresh air, general and toilet extract',
+    sizingMethod: 'friction',
+    allowsFlexible: true,
+  },
+  {
+    id: 'kitchen',
+    name: 'Kitchen grease extract',
+    short: 'Kitchen',
+    useCase: 'Commercial kitchen canopies & grease ducts',
+    sizingMethod: 'velocity',
+    // Flexible duct is not normally fire-code permitted for grease extract
+    // (e.g. NFPA 96 / DW/172), so it is not offered as a duct type here.
+    allowsFlexible: false,
+    /**
+     * MINIMUM transport velocity by role, m/s — the speed below which grease
+     * settles out and fouls the duct, which is a fire risk rather than a
+     * maintenance one. DW/172-style indicative figures; confirm against the
+     * canopy duty before specifying.
+     *
+     * The main/riser carries the highest minimum because it is the longest,
+     * least accessible part of the run and the hardest to clean; branches and
+     * runouts are shorter and reachable, so they sit lower.
+     *
+     * The MAXIMUM still comes from the space the duct runs through, which is
+     * the point of splitting the two: the same grease duct gets 12 m/s of
+     * headroom in a riser and 9 m/s where it crosses a restaurant.
+     */
+    minVelocity: { main: 7.5, branch: 6.0, runout: 6.0, flex: 6.0 },
+  },
+];
+
+/** Project-wide friction target, Pa/m — the main driver of duct size. */
+export const DEFAULT_FRICTION_TARGET = 1.0;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },
@@ -168,28 +235,45 @@ export const SHAPES = [
 ];
 
 export function spaceType(id) {
-  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[1];
+  return SPACE_TYPES.find((s) => s.id === id) ?? SPACE_TYPES[3];
 }
 
-/** Whether flexible duct may be used at all in this space type. */
-export function spaceAllowsFlexible(spaceId) {
-  return spaceType(spaceId).allowsFlexible !== false;
+export function systemType(id) {
+  return SYSTEM_TYPES.find((s) => s.id === id) ?? SYSTEM_TYPES[0];
 }
 
-/** Duct types selectable in this space type, in display order. */
-export function shapesForSpace(spaceId) {
-  return spaceAllowsFlexible(spaceId) ? SHAPES : SHAPES.filter((s) => s.id !== 'flexible');
+/** Whether flexible duct may be used at all on this system. */
+export function systemAllowsFlexible(systemId) {
+  return systemType(systemId).allowsFlexible !== false;
+}
+
+/** Duct types selectable on this system, in display order. */
+export function shapesForSystem(systemId) {
+  return systemAllowsFlexible(systemId) ? SHAPES : SHAPES.filter((s) => s.id !== 'flexible');
+}
+
+/** Role key for a lookup — flexible duct has its own entry whatever its role. */
+function roleKey(roleId, shape) {
+  return shape === 'flexible' ? 'flex' : roleId;
 }
 
 /**
- * Velocity limits for a space type + duct role. Pass `shape: 'flexible'` (or
- * any shape) to pick the role-specific limit, or leave it out — flexible
- * duct's dedicated `flex` limits apply whenever `shape` is 'flexible'.
+ * Maximum velocity for a space + duct role, m/s. Set by noise alone.
  */
-export function velocityLimits(spaceId, roleId, shape) {
+export function maxVelocity(spaceId, roleId, shape) {
   const space = spaceType(spaceId);
-  const key = shape === 'flexible' ? 'flex' : roleId;
-  return space.roles[key] ?? space.roles.branch;
+  return space.roles[roleKey(roleId, shape)] ?? space.roles.branch;
+}
+
+/**
+ * Minimum velocity for a system + duct role, m/s, or 0 where there is none.
+ * Only kitchen grease extract has one; the friction target is what stops a
+ * friction-sized duct being oversized.
+ */
+export function minVelocity(systemId, roleId, shape) {
+  const system = systemType(systemId);
+  if (!system.minVelocity) return 0;
+  return system.minVelocity[roleKey(roleId, shape)] ?? system.minVelocity.branch;
 }
 
 export function material(id) {
@@ -282,16 +366,3 @@ export function fittingGroups(shape) {
   }
   return [...groups.entries()];
 }
-
-/* ------------------------------------------------------------------ *
- * Noise criteria — indicative dBA room limits by space use
- * ------------------------------------------------------------------ */
-
-export const NOISE_CRITERIA = [
-  { name: 'Bedroom', nr: 'NR 25', dba: 30 },
-  { name: 'Living room', nr: 'NR 30', dba: 35 },
-  { name: 'Private office', nr: 'NR 35', dba: 40 },
-  { name: 'Open plan office', nr: 'NR 38', dba: 43 },
-  { name: 'Retail / restaurant', nr: 'NR 40', dba: 45 },
-  { name: 'Workshop / plant', nr: 'NR 45', dba: 50 },
-];

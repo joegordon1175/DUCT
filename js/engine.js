@@ -12,7 +12,6 @@
  *   - ASHRAE circular equivalent diameter for rectangular duct, sized on
  *     "equal friction, equal flow".
  *   - Loss-coefficient (velocity-pressure) method for fittings.
- *   - Empirical A-weighted regenerated-noise estimate (CIBSE/Woods form).
  *   - Two sizing modes: "ceiling" (constant friction rate; velocity is only
  *     ever checked, never sized to) and "floor" (constant velocity sized to
  *     a MINIMUM, e.g. kitchen grease extract, where standard sizes snap down
@@ -150,8 +149,15 @@ export function roundHydraulics(flow, diameter, roughness, air = STANDARD_AIR) {
  * Friction rate and flow state for a rectangular duct.
  *
  * Pressure is evaluated on the circular equivalent (ASHRAE equal-friction
- * basis); velocity, velocity pressure and noise use the *actual* face area,
- * because that is what the air in the duct is really doing.
+ * basis); velocity and velocity pressure use the *actual* face area, because
+ * that is what the air in the duct is really doing.
+ *
+ * Two Reynolds numbers come out of that, and conflating them is misleading:
+ * `Re` is the duct's own (hydraulic diameter, actual velocity) and `ReEquivalent`
+ * is the one the friction factor is taken at (equivalent diameter, equivalent
+ * velocity). They differ by ~20 % on a 600 × 400, which matters not at all for
+ * `f` — both are fully turbulent — but a reported "Reynolds number" should be
+ * the duct's, not the equivalent round pipe's.
  */
 export function rectangularHydraulics(flow, width, height, roughness, air = STANDARD_AIR) {
   const area = width * height;
@@ -166,7 +172,8 @@ export function rectangularHydraulics(flow, width, height, roughness, air = STAN
     De,
     Dh,
     aspectRatio: Math.max(width, height) / Math.min(width, height),
-    Re: equivalent.Re,
+    Re: (velocity * Dh) / air.kinematic,
+    ReEquivalent: equivalent.Re,
     f: equivalent.f,
     velocityPressure,
     equivalentVelocity: equivalent.velocity,
@@ -197,38 +204,72 @@ export function diameterForVelocity(flow, velocity) {
   return Math.sqrt((4 * flow) / (Math.PI * velocity));
 }
 
-/** Smallest value in `list` that is >= value; falls back to a 50 mm round-up. */
+/**
+ * Smallest value in `list` that is >= value.
+ *
+ * When nothing in the list is big enough the answer is CLAMPED to the largest
+ * listed size, never invented. The size list is what the user's supplier
+ * actually holds, so rounding to an unlisted 50 mm multiple produced ducts
+ * that cannot be bought (Ø1500 and Ø2100 off a list topping out at 1400).
+ * `calcSegment` notices that the sizing rule was missed and reports it instead:
+ * the honest answer is "nothing in your list works", not a duct that is not made.
+ * The 50 mm fallback survives only for an empty list, where there is nothing
+ * to clamp to.
+ */
 export function snapUp(value, list) {
   for (const candidate of list) if (candidate >= value - 1e-9) return candidate;
-  return Math.ceil(value / 50) * 50;
+  if (list.length) return list[list.length - 1];
+  return Math.max(50, Math.ceil(value / 50) * 50);
 }
 
-/** Largest value in `list` that is <= value; falls back to a 50 mm round-down,
- * floored at 50 mm so it never returns zero or negative. */
+/**
+ * Largest value in `list` that is <= value, clamped up to the smallest listed
+ * size when nothing is small enough — same reasoning as `snapUp`. Below the
+ * list this was the more damaging of the two, because floor sizing reaches it
+ * on ordinary duties: a small kitchen canopy at 60–80 l/s was fabricating a
+ * Ø100 round, and 40–60 l/s a 50 mm wide rectangular duct.
+ */
 export function snapDown(value, list) {
   let best = null;
   for (const candidate of list) {
     if (candidate <= value + 1e-9) best = candidate;
   }
   if (best !== null) return best;
+  if (list.length) return list[0];
   return Math.max(50, Math.floor(value / 50) * 50);
 }
 
 /**
- * Standard size for "floor" sizing, where the target is a minimum velocity to
+ * Standard size for "floor" sizing, where the target velocity is a minimum to
  * hold rather than a maximum not to exceed — kitchen grease extract, sized so
- * material stays entrained. Snapping *up* (the normal rule) would silently
- * drop the actual velocity below the target, defeating the point of sizing
- * on velocity at all. Picks the largest standard size that does not exceed
- * `idealMax` (the diameter/width at the target velocity); if that would also
- * fall below `floorMin` (the diameter/width at the max-velocity cap — a very
- * coarse size list skipping the whole valid range), falls back to the
- * smallest size that respects `floorMin` instead, since not exceeding the
- * velocity cap takes priority over holding the minimum.
+ * material stays entrained. Snapping *up* (the normal rule) would silently drop
+ * the actual velocity below the target, defeating the point of sizing on
+ * velocity at all.
+ *
+ * `idealMax` is the diameter (or width) at the target minimum velocity and
+ * `floorMin` the one at the max-velocity cap, so [floorMin, idealMax] is the
+ * band satisfying both. Normally the largest listed size at or below `idealMax`
+ * lands inside it.
+ *
+ * When the list skips the band entirely neither candidate is valid, and the only
+ * choice left is which limit to breach. A fixed priority is wrong in both
+ * directions: on a coarse list, holding the velocity cap can mean jumping to
+ * nearly double the diameter (6.3 m/s against a 7.5 m/s minimum), while holding
+ * the minimum can mean running at 25 m/s. Pick whichever sits closer to the
+ * band instead, as a ratio — velocity goes as 1/d² for round duct and 1/w at a
+ * fixed height, so the smaller ratio is the smaller velocity excursion either
+ * way. Whichever is picked, `calcSegment` reports the rule as unmet.
  */
 export function snapFloor(idealMax, floorMin, list) {
   const down = snapDown(idealMax, list);
-  return down >= floorMin - 1e-9 ? down : snapUp(floorMin, list);
+  if (down >= floorMin - 1e-9 && down <= idealMax + 1e-9) return down;
+  const up = snapUp(floorMin, list);
+  // `down` clamped up past the band: the duty is below everything listed, so
+  // the smallest listed size is the only answer and `up` already is it.
+  if (down > idealMax + 1e-9) return up;
+  const tooSmallBy = down > 0 ? floorMin / down : Infinity;
+  const tooBigBy = idealMax > 0 ? up / idealMax : Infinity;
+  return tooSmallBy <= tooBigBy ? down : up;
 }
 
 /**
@@ -278,23 +319,34 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
   };
 
   let best = null;
+  let nearest = null;
   for (const h of sizes) {
     if (h > maxHeightMm) continue;
     const w = pickWidth(h);
     const aspect = Math.max(w, h) / Math.min(w, h);
     if (aspect > maxAspect) continue;
 
+    const area = w * h;
     // In floor mode a candidate is only valid if it actually lands in the
     // area band — otherwise it silently breaches the velocity it was sized to.
-    if (direction === 'down' && Number.isFinite(maxAreaMm2) && w * h > maxAreaMm2 + 1e-6) continue;
+    const overBand =
+      direction === 'down' && Number.isFinite(maxAreaMm2) && area > maxAreaMm2 + 1e-6;
+    if (overBand) {
+      // Keep the one that misses by least, in case the list holds nothing
+      // inside the band at all — better than falling through to the largest
+      // height on the list, which is what used to happen.
+      const miss = area / maxAreaMm2;
+      if (!nearest || miss < nearest.miss) nearest = { width: w, height: h, miss };
+      continue;
+    }
 
-    const area = w * h;
     // Rank on closeness to the preferred aspect first, then on wasted area.
     const score = Math.abs(Math.log(aspect / preferredAspect)) * 1000 + area / 1e6;
     if (!best || score < best.score) best = { width: w, height: h, score };
   }
 
   if (best) return { width: best.width, height: best.height };
+  if (nearest) return { width: nearest.width, height: nearest.height };
 
   // Nothing satisfied the aspect limit (very large duct in a shallow void):
   // fall back to the shallowest allowed height and accept the aspect ratio.
@@ -303,39 +355,31 @@ export function selectRectangular(requiredDeMm, minAreaMm2, sizes, opts = {}) {
 }
 
 /* ------------------------------------------------------------------ *
- * Noise
+ * Noise — deliberately NOT modelled
+ * ------------------------------------------------------------------ *
+ * There was an indicative A-weighted regenerated-noise estimate here
+ * (L_wA = 10 + 50 log₁₀ v + 10 log₁₀ A + 10 log₁₀ ζ, the CIBSE/Woods form).
+ * It has been removed rather than improved, because it could not be made
+ * trustworthy without octave-band data this app does not have:
+ *
+ *   - Every fixed-pressure item scored zero. Grilles, diffusers, silencers,
+ *     filters and coils contributed nothing, and the terminal is normally the
+ *     loudest thing in the room — a 150 l/s ceiling diffuser is typically
+ *     published around 30–35 dBA, above the whole residential limit on its own.
+ *   - There was no duct attenuation, and generated noise did not scale with
+ *     length (0.5 m and 50 m of the same duct read identically), so upstream
+ *     sound power was summed into the room level undiminished.
+ *   - Those two errors run in opposite directions and cannot be netted off
+ *     without the octave-band data that would have made the estimate
+ *     unnecessary in the first place.
+ *   - The residential check could not fire at any permitted velocity: 30 dBA
+ *     room SPL needed 5.8–8.5 m/s depending on size, against a 5.0 m/s cap.
+ *
+ * Velocity limits remain the app's noise control, which is how CIBSE Guide B3
+ * and ASHRAE present them anyway. For an actual acoustic assessment, use
+ * manufacturers' sound-power data for the terminals and a proper attenuation
+ * calculation.
  * ------------------------------------------------------------------ */
-
-/**
- * A-weighted regenerated sound power of a duct element (indicative).
- *
- *   L_wA = 10 + 50 log₁₀(v) + 10 log₁₀(A) + 10 log₁₀(ζ)
- *
- * The v⁵·A form is the long-standing CIBSE/Woods rule of thumb for airflow
- * noise generated in ductwork; the ζ term scales it with the disturbance the
- * element causes, so a mitred bend reads ~9 dB above a smooth radius bend.
- * Straight duct uses ζ = 1. This is an estimate for comparing selections —
- * it is not a substitute for manufacturers' octave-band data.
- *
- * @param {number} velocity  m/s
- * @param {number} area      m²
- * @param {number} zeta      loss coefficient of the element (1 for straight duct)
- */
-export function regeneratedNoise(velocity, area, zeta = 1) {
-  if (!(velocity > 0) || !(area > 0)) return 0;
-  return (
-    10 +
-    50 * Math.log10(velocity) +
-    10 * Math.log10(area) +
-    10 * Math.log10(Math.max(zeta, 0.05))
-  );
-}
-
-/** Logarithmic (energy) sum of sound levels in dB. Ignores non-positive terms. */
-export function combineLevels(levels) {
-  const sum = levels.reduce((acc, L) => (L > 0 ? acc + Math.pow(10, L / 10) : acc), 0);
-  return sum > 0 ? 10 * Math.log10(sum) : 0;
-}
 
 /* ------------------------------------------------------------------ *
  * Leakage & pressure class
@@ -540,15 +584,7 @@ export function calcSegment(seg, ctx) {
     const zeta = Math.max(fit.zeta ?? 0, 0);
     const fixed = Math.max(fit.fixedPa ?? 0, 0);
     const each = fixed > 0 ? fixed : zeta * hyd.velocityPressure;
-    const noiseEach = fixed > 0 ? 0 : regeneratedNoise(hyd.velocity, hyd.area, zeta);
-    return {
-      ...fit,
-      qty,
-      zeta,
-      each,
-      total: each * qty,
-      noise: noiseEach > 0 && qty > 0 ? noiseEach + 10 * Math.log10(qty) : 0,
-    };
+    return { ...fit, qty, zeta, each, total: each * qty };
   });
   const fittingLoss = fittings.reduce((sum, f) => sum + f.total, 0);
   const zetaTotal = fittings.reduce((sum, f) => sum + f.zeta * f.qty, 0);
@@ -556,10 +592,20 @@ export function calcSegment(seg, ctx) {
   const componentPa = Math.max(seg.componentPa ?? 0, 0);
   const totalLoss = straightLoss + fittingLoss + componentPa;
 
-  // --- noise -------------------------------------------------------------
-  const ductNoise =
-    lengthM > 0 ? regeneratedNoise(hyd.velocity, hyd.area, 1) : 0;
-  const noiseLwA = combineLevels([ductNoise, ...fittings.map((f) => f.noise)]);
+  // --- did the selection actually satisfy the sizing rule? ---------------
+  // With sizes clamped to the configured list (see `snapUp`/`snapDown`) a duty
+  // can fall outside what the list can serve: below the smallest size a kitchen
+  // run cannot reach its transport minimum, above the largest one a friction
+  // target cannot be met. Report it rather than inventing a size or quietly
+  // missing the target — the fix is to add sizes to the list, which only the
+  // user can decide.
+  const tol = 1.001;
+  const overMax = ctx.maxVelocity > 0 && hyd.velocity > ctx.maxVelocity * tol;
+  const underMin =
+    floorSizing && ctx.targetVelocity > 0 && hyd.velocity < ctx.targetVelocity / tol;
+  const overFriction =
+    !floorSizing && ctx.targetFriction > 0 && frictionRate > ctx.targetFriction * tol;
+  const ruleMet = !(overMax || underMin || overFriction);
 
   // --- geometry extras ---------------------------------------------------
   const perimeter = rectangular ? 2 * (w + h) : Math.PI * h;
@@ -578,6 +624,10 @@ export function calcSegment(seg, ctx) {
     hydraulicDiameterMm: rectangular ? hyd.Dh * 1000 : heightMm,
     aspectRatio: rectangular ? hyd.aspectRatio : 1,
     reynolds: hyd.Re,
+    // For rectangular duct the friction factor is taken at the circular
+    // equivalent, so this is the Re that `frictionFactor` belongs to. Equal to
+    // `reynolds` for round duct.
+    reynoldsEquivalent: hyd.ReEquivalent ?? hyd.Re,
     frictionFactor: hyd.f,
     frictionRate,
     lengthM,
@@ -585,11 +635,19 @@ export function calcSegment(seg, ctx) {
     fittingLoss,
     componentPa,
     totalLoss,
+    // Only meaningful for velocity-pressure fittings: a fixed-Pa component has
+    // no equivalent length, so `fittingsEquivalentLengthM` excludes them and
+    // the older combined figure is kept only for continuity.
     equivalentLengthM: frictionRate > 0 ? (fittingLoss + componentPa) / frictionRate : 0,
+    fittingsEquivalentLengthM:
+      frictionRate > 0 ? fittings.reduce((s, f) => s + (f.zeta > 0 ? f.total : 0), 0) / frictionRate : 0,
     zetaTotal,
     fittings,
-    ductNoise,
-    noiseLwA,
+    ruleMet,
+    sizeLimited: !ruleMet && sizedBy === 'calculated',
+    exceedsMaxVelocity: overMax,
+    belowMinVelocity: underMin,
+    exceedsFrictionTarget: overFriction,
     surfaceArea,
     flexFactor,
     flow,
@@ -612,11 +670,10 @@ function positive(v) {
  * @param {object} opts
  *   @param {number} opts.plantPa       fixed plant/terminal allowance, Pa
  *   @param {number} opts.marginPct     fan selection margin, %
- *   @param {number} opts.roomCorrection  dB deducted from L_wA for room SPL
  *   @param {string} opts.leakageClass  DW/144 class for the leakage estimate
  */
 export function calcRun(results, opts = {}) {
-  const { plantPa = 0, marginPct = 10, roomCorrection = 9, leakageClass = 'A' } = opts;
+  const { plantPa = 0, marginPct = 10, leakageClass = 'A' } = opts;
 
   const ductPa = results.reduce((sum, r) => sum + r.totalLoss, 0);
   const totalPa = ductPa + Math.max(plantPa, 0);
@@ -628,10 +685,12 @@ export function calcRun(results, opts = {}) {
     : 0;
   const surfaceArea = results.reduce((sum, r) => sum + r.surfaceArea, 0);
   const lengthM = results.reduce((sum, r) => sum + r.lengthM, 0);
-  const noiseLwA = combineLevels(results.map((r) => r.noiseLwA));
 
-  // Leakage is driven by mean duct pressure over the run, not the fan total.
-  const meanPressure = totalPa / 2;
+  // Leakage is driven by the mean pressure INSIDE THE DUCT, so the plant
+  // allowance is excluded: a coil, filter or grease-filter bank is not duct
+  // static pressure. Including it inflated the figure badly — 450 Pa of plant
+  // on a 70 Pa duct run read 3.7x high, 900 Pa read 5.5x high.
+  const meanPressure = ductPa / 2;
   const leakageLps = leakageRate(meanPressure, leakageClass) * surfaceArea;
   const designFlow = results.length ? results[0].flow * 1000 : 0;
 
@@ -645,8 +704,12 @@ export function calcRun(results, opts = {}) {
     minVelocity,
     lengthM,
     surfaceArea,
-    noiseLwA,
-    roomSpl: noiseLwA > 0 ? Math.max(noiseLwA - roomCorrection, 0) : 0,
+    rulesMet: results.every((r) => r.ruleMet !== false),
+    sizeLimited: results.some((r) => r.sizeLimited === true),
+    // Construction class stays on the fan total, unlike leakage above. The app
+    // cannot know whether the plant allowance sits upstream or downstream of
+    // the duct, and the duct must be built for the worst case; over-specifying
+    // sheet metal is cheap, under-specifying it is not.
     pressureClass: pressureClass(totalPa, maxVelocity),
     leakageClass,
     leakageLps,
