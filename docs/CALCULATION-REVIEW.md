@@ -1162,3 +1162,23 @@ defective install, not a design condition, and is dropped. Saves on 10 % or 30 %
 load as Typical 15 %; "Fully extended" saves stay on Tight 4 %. Factors are
 unchanged (ASHRAE Eq. 22, §17). The §16/§17 tables keep their 10 % and 30 %
 columns for reference.
+
+## 19. Standard flexible sizes: Ø150–550
+
+The default flex list is now Ø150, 200, 250 … 550 (50 mm steps). Ø100 / 125 /
+160 and Ø600 are removed: below Ø150 is outside the compression correction's
+tested range anyway. Untouched saved lists (either earlier default) upgrade on
+load; edited lists are kept.
+
+Effect, 4 m runout:
+
+| l/s | Tight 4 % | Typical 15 % |
+|---|---|---|
+| 30 | Ø150 0.9 Pa/m | Ø150 2.2 |
+| 60 | Ø150 3.4 | Ø200 1.5 (backstop: Ø150 would be ~8.2) |
+| 100 | Ø200 1.8 | Ø200 4.1 |
+| 150 | Ø250 1.1 | Ø250 2.4 |
+| 400 | Ø400 0.5 | Ø400 0.9 |
+
+Ø550 at 3.5 m/s holds ~830 l/s; above that flex flags "no size in your list".
+The §16–17 tables above were run on the earlier list.

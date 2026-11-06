@@ -75,7 +75,9 @@ lower. Flex runouts are short, so a high Pa/m costs little in absolute terms,
 and holding compressed flex to 1 Pa/m oversized it badly. An **8 Pa/m friction
 ceiling** on the compressed rate (Settings) is the backstop: it upsizes small,
 long or crushed flex where velocity alone would leave a real pressure penalty —
-e.g. 60 l/s at 15 % goes Ø150 → Ø160.
+e.g. 60 l/s at 15 % goes Ø150 → Ø200.
+Standard flex sizes are Ø150–550 in 50 mm steps (editable in Settings); the
+largest holds about 830 l/s at 3.5 m/s.
 
 Above NR 45 the published limits plateau — AIRAH caps the riser column at
 10 m/s at every NR — so back of house, workshop and car park share figures. They

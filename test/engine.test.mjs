@@ -1053,7 +1053,7 @@ test('stretched non-metallic flex reproduces the research baseline (ε 0.9 mm)',
 test('flex conditions are Tight 4 % and Typical 15 %, Typical the default', () => {
   assert.deepEqual(FLEX_CONDITIONS.map((c) => c.compression), [0.04, 0.15]);
   assert.equal(DEFAULT_FLEX_CONDITION, 'c15');
-  for (const d of [100, 125, 160]) assert.ok(FLEX_SIZES.includes(d), `flex list has Ø${d}`);
+  assert.deepEqual(FLEX_SIZES, [150, 200, 250, 300, 350, 400, 450, 500, 550]);
   assert.equal(FLEX_MAX_FRICTION, 8.0);
 });
 
@@ -1081,10 +1081,10 @@ test('flexible duct sizes on velocity: compression up to 15 % does not move the 
 
 test('8 Pa/m backstop upsizes small compressed flex', () => {
   const r = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
-  assert.equal(r.heightMm, 160, 'Ø150 would be ~9 Pa/m, so the ceiling steps to Ø160');
+  assert.equal(r.heightMm, 200, 'Ø150 would be ~8.2 Pa/m, so the ceiling steps to Ø200');
   assert.ok(r.frictionRate <= FLEX_MAX_FRICTION, `got ${r.frictionRate}`);
   const taut = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.04));
-  assert.ok(taut.heightMm <= 160 && taut.frictionRate <= FLEX_MAX_FRICTION);
+  assert.equal(taut.heightMm, 150, 'taut Ø150 holds the ceiling');
 });
 
 test('a lower space runout limit governs flex velocity below 3.5 m/s', () => {
