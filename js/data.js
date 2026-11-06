@@ -42,8 +42,13 @@ export const DUST_ROUND_SIZES = [
 
 /** Flexible duct, 50 mm increments over the range it's normally made in. */
 export const FLEX_SIZES = [
-  150, 200, 250, 300, 350, 400, 450, 500, 550, 600,
+  100, 125, 150, 160, 200, 250, 300, 350, 400, 450, 500, 550, 600,
 ];
+
+/** The flexible list before 100 / 125 / 160 were added. A stored list still
+ * equal to this was never edited, so it is upgraded on load; one that differs
+ * was the user's choice and is left alone. */
+export const LEGACY_FLEX_SIZES = [150, 200, 250, 300, 350, 400, 450, 500, 550, 600];
 
 /** Rectangular duct on the usual 50 mm modular increments. */
 export const RECT_SIZES = [
@@ -72,15 +77,34 @@ export const MATERIALS = [
 export const DEFAULT_MATERIAL = { circular: 'galv', rectangular: 'galv', flexible: 'flex_insulated' };
 
 /**
- * Flexible duct is only as good as its installation. Compression raises the
- * friction rate sharply (ASHRAE: ~15 % compression roughly doubles the loss,
- * ~30 % roughly quadruples it).
+ * Flexible duct is only as good as its installation. Each option is a
+ * longitudinal compression ratio, turned into a pressure-drop correction by the
+ * measured, diameter-dependent `flexCompressionFactor` in engine.js.
+ *
+ * Where real installations sit:
+ *   4 %  — properly installed and pulled taut. ACCA treats ≤4 % as "fully
+ *          extended"; Texas A&M say 4 % should be expected in the field, which
+ *          reads as an aim rather than a survey finding.
+ *   10 % — the MEASURED average across real residential runs (LBNL field study,
+ *          ACEEE 2002).
+ *   15 % — LBNL's "moderate compression typical of field installation", their
+ *          "normal stretch" case. The default: realistic, and a little
+ *          conservative against the 10 % average.
+ *   30 % — LBNL's "extreme" case. A bad installation, not a design condition —
+ *          here for checking an existing poor install.
+ *
+ * The previous options were a flat x2 at 15 % and x4 at 30 % for every
+ * diameter — roughly half what LBNL measured, and size-independent where the
+ * measurements show small duct suffering far more.
  */
 export const FLEX_CONDITIONS = [
-  { id: 'extended', name: 'Fully extended', factor: 1.0 },
-  { id: 'c15', name: '15 % compressed', factor: 2.0 },
-  { id: 'c30', name: '30 % compressed', factor: 4.0 },
+  { id: 'c04', name: '4 % taut', compression: 0.04 },
+  { id: 'c10', name: '10 % avg', compression: 0.1 },
+  { id: 'c15', name: '15 % typical', compression: 0.15 },
+  { id: 'c30', name: '30 % poor', compression: 0.3 },
 ];
+
+export const DEFAULT_FLEX_CONDITION = 'c15';
 
 /* ------------------------------------------------------------------ *
  * Space types, system types & duct roles
@@ -463,6 +487,28 @@ export const DEFAULT_FRICTION_TARGET = 1.0;
  * the "15 % compressed" x2 on rate over a given run.
  */
 export const FLEX_MAX_VELOCITY = 3.5;
+
+/**
+ * Friction CEILING for flexible duct, Pa/m, on the compressed rate.
+ *
+ * Flexible duct is sized on velocity — the 3.5 m/s cap above, or the space's
+ * runout limit if lower — because a single Pa/m target fits it badly: friction
+ * per metre climbs steeply as the duct gets smaller, and sizing on it makes the
+ * selected size swing with the compression assumed, which is rarely known at
+ * design stage. Velocity sizing does not swing: the duct you pick is the same
+ * whatever compression or product you assume, and only the reported loss moves.
+ *
+ * This ceiling is the backstop for where velocity alone lets pressure run away —
+ * small, long or crushed runs. With the measured compression correction a
+ * Ø150 runout at 60 l/s and 15 % runs ~11 Pa/m, a 3 m run 33 Pa: more than the
+ * grille it feeds. At 8 Pa/m that goes up to Ø160 at 7.7 Pa/m. That moves a
+ * small runout off the size commonly installed, deliberately: a tool that gets
+ * fan duty right should not keep a size that loses more than its terminal.
+ *
+ * 8 Pa/m is this app's own figure, picked from a sweep of sizes, compression and
+ * material — not a published one. Tune it in Settings.
+ */
+export const FLEX_MAX_FRICTION = 8.0;
 
 export const DUCT_ROLES = [
   { id: 'main', name: 'Main / riser', short: 'Main' },

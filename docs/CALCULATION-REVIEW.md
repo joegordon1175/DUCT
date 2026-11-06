@@ -1042,3 +1042,51 @@ rare on LEV, held to 2:1, and corners collect dust regardless.
 Example: 800 l/s of average industrial dust went to Ø200 at 25.5 m/s — over the
 cap, flagged "no size in your list" — and now lands on Ø224 inside its band.
 Older saves gain the list on load.
+
+## 16. Flexible duct: LBNL compression, sized on velocity, 8 Pa/m backstop
+
+The flat ×2 / ×4 compression factors were replaced, and flex stopped sizing on
+the 1 Pa/m project target.
+
+**Why.** Holding compressed flex to 1 Pa/m oversized it — 100 l/s at 15 %
+needed Ø250+, which nobody installs. Flex runouts are short (≤3–4 m), so 5 Pa/m
+across 3 m is 15 Pa, comparable to a grille. And a flat factor was wrong in
+shape: LBNL's lab work shows compression hurts small flex far more than large.
+
+**Compression model.** `PDCF = 1 + k·rc`, rc = compression ratio, k by diameter:
+
+| Ø | k | ×@4 % | ×@10 % | ×@15 % | ×@30 % |
+|---|---|---|---|---|---|
+| 150 | 25.35 | 2.01 | 3.54 | 4.80 | 8.61 |
+| 200 | 21.61 | 1.86 | 3.16 | 4.24 | 7.48 |
+| 250 | 16.18 | 1.65 | 2.62 | 3.43 | 5.85 |
+
+Interpolated between 150 and 250, held at the end values outside. Source:
+LBNL (Abushakra, Walker, Sherman), as reproduced in secondary literature — the
+primary report was not read, so the k values carry that caveat.
+
+**Options.** 4 % (ACCA Manual D "fully extended" ≤4 %), 10 % (LBNL/ACEEE 2002
+measured field average), **15 % default** (LBNL "normal stretch", typical of
+real installs), 30 % (poor/crushed — real, but a defect, not a design basis).
+Old saves: "Fully extended" → 4 %; 15 % and 30 % keep their ids.
+
+**Sizing.** Flex sizes on velocity — 3.5 m/s (AIRAH sw022) or the space's
+runout limit if lower — with an **8 Pa/m ceiling on the compressed friction
+rate** as a backstop. The friction search uses the compression factor at each
+trial diameter, so the ceiling is honoured exactly. 100 / 125 / 160 added to the
+flex list (untouched old lists upgrade on load).
+
+Result, 4 m runout:
+
+| l/s | 4 % | 10 % | 15 % | 30 % |
+|---|---|---|---|---|
+| 30 | Ø125 3.1 Pa/m | Ø125 5.5 | Ø125 7.5 | Ø150 5.1 |
+| 60 | Ø150 4.6 | Ø160 5.7 | Ø160 7.7 | Ø200 3.7 |
+| 100 | Ø200 2.6 | Ø200 4.3 | Ø200 5.8 | Ø250 2.5 |
+| 150 | Ø250 1.5 | Ø250 2.4 | Ø250 3.2 | Ø250 5.5 |
+| 250 | Ø350 0.7 | Ø350 1.1 | Ø350 1.5 | Ø350 2.5 |
+| 400 | Ø400 0.9 | Ø400 1.4 | Ø400 1.9 | Ø400 3.2 |
+
+Up to 15 %, velocity governs and compression barely moves the size; the
+backstop bites on small flex and at 30 %. The friction penalty still shows in
+the run's pressure drop, which is where it belongs.

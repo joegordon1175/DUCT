@@ -22,6 +22,7 @@ import {
   calcSegment,
   calcRun,
   STANDARD_AIR,
+  flexCompressionFactor,
 } from '../js/engine.js';
 
 import {
@@ -36,6 +37,11 @@ import {
   DUST_CLASSES,
   dustClass,
   spaceType,
+  FLEX_CONDITIONS,
+  DEFAULT_FLEX_CONDITION,
+  FLEX_SIZES,
+  FLEX_MAX_FRICTION,
+  FLEX_MAX_VELOCITY,
 } from '../js/data.js';
 
 /* The acoustic scale runs from the tightest room to the least critical.
@@ -1005,4 +1011,61 @@ test('worked example: 250 l/s commercial branch, Ø250, 12 m, 3 bends', () => {
   close(r.fittingLoss, 0.65 * r.velocityPressure + 25, 0.01);
   close(r.totalLoss, r.straightLoss + r.fittingLoss, 1e-9);
   assert.ok(r.totalLoss > 45 && r.totalLoss < 60, `total ${r.totalLoss} Pa is plausible`);
+});
+
+// ---- LBNL size-dependent flexible duct compression (PDCF = 1 + k*rc) ----
+
+test('LBNL compression factor matches the published k values and interpolates', () => {
+  close(flexCompressionFactor(150, 0.15), 1 + 25.35 * 0.15, 1e-9, 'Ø150 @15%');
+  close(flexCompressionFactor(200, 0.15), 1 + 21.61 * 0.15, 1e-9, 'Ø200 @15%');
+  close(flexCompressionFactor(250, 0.3), 1 + 16.18 * 0.3, 1e-9, 'Ø250 @30%');
+  close(flexCompressionFactor(175, 0.1), 1 + ((25.35 + 21.61) / 2) * 0.1, 1e-9, 'Ø175 interpolates');
+  close(flexCompressionFactor(100, 0.15), flexCompressionFactor(150, 0.15), 1e-9, 'below Ø150 holds');
+  close(flexCompressionFactor(400, 0.15), flexCompressionFactor(250, 0.15), 1e-9, 'above Ø250 holds');
+  close(flexCompressionFactor(200, 0), 1, 1e-9, 'zero compression is straight duct');
+  assert.ok(flexCompressionFactor(150, 0.15) > flexCompressionFactor(250, 0.15), 'small flex suffers more');
+});
+
+test('flex conditions are 4/10/15/30 % with 15 % the default', () => {
+  assert.deepEqual(FLEX_CONDITIONS.map((c) => c.compression), [0.04, 0.1, 0.15, 0.3]);
+  assert.equal(DEFAULT_FLEX_CONDITION, 'c15');
+  for (const d of [100, 125, 160]) assert.ok(FLEX_SIZES.includes(d), `flex list has Ø${d}`);
+  assert.equal(FLEX_MAX_FRICTION, 8.0);
+});
+
+const flexCtx = (compression, over = {}) =>
+  ctx({
+    roughness: 0.003,
+    flexCompression: compression,
+    targetFriction: FLEX_MAX_FRICTION,
+    maxVelocity: FLEX_MAX_VELOCITY,
+    roundSizes: FLEX_SIZES,
+    ...over,
+  });
+
+test('flexible duct sizes on velocity: compression up to 15 % does not move the size', () => {
+  for (const flow of [100, 150, 250, 400]) {
+    const sizes = FLEX_CONDITIONS.map(
+      (c) => calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(c.compression)).heightMm
+    );
+    // 4-15 %: velocity governs, so compression does not move the size.
+    assert.ok(sizes.slice(0, 3).every((d) => d === sizes[0]), `${flow} l/s sizes vary with compression: ${sizes}`);
+    // 30 %: the 8 Pa/m backstop may step it up, never down.
+    assert.ok(sizes[3] >= sizes[0], `${flow} l/s at 30 % must not downsize`);
+    const r = calcSegment({ airflowLps: flow, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
+    assert.ok(r.velocity <= FLEX_MAX_VELOCITY + 1e-9, `${flow} l/s within 3.5 m/s`);
+  }
+});
+
+test('8 Pa/m backstop upsizes small compressed flex', () => {
+  const r = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.15));
+  assert.equal(r.heightMm, 160, 'Ø150 would be ~9 Pa/m, so the ceiling steps to Ø160');
+  assert.ok(r.frictionRate <= FLEX_MAX_FRICTION, `got ${r.frictionRate}`);
+  const taut = calcSegment({ airflowLps: 60, shape: 'flexible', lengthM: 4 }, flexCtx(0.04));
+  assert.ok(taut.heightMm <= 160 && taut.frictionRate <= FLEX_MAX_FRICTION);
+});
+
+test('a lower space runout limit governs flex velocity below 3.5 m/s', () => {
+  const r = calcSegment({ airflowLps: 150, shape: 'flexible', lengthM: 4 }, flexCtx(0.15, { maxVelocity: 2.5 }));
+  assert.ok(r.velocity <= 2.5 + 1e-9, `got ${r.velocity}`);
 });

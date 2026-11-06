@@ -210,6 +210,18 @@
       </div>
     </div>
 
+    <div class="field">
+      <label class="label" for="settings-flex-max-friction">Flexible duct friction ceiling</label>
+      <div class="input-unit">
+        <input id="settings-flex-max-friction" type="number" inputmode="decimal" step="0.5" min="0.5" max="30">
+        <span class="unit">Pa/m</span>
+      </div>
+      <p class="hint">Flexible duct sizes on velocity (3.5 m/s, or the space's runout limit if
+      lower), not on the target above, so the size doesn't swing with how compressed you assume
+      it will be. This ceiling — on the <em>compressed</em> rate — is the backstop for small,
+      long or crushed runs, where velocity alone would let the loss run away.</p>
+    </div>
+
     <div class="field-label-row">
       <span class="label">Maximum velocity by space</span>
       <button class="text-btn" type="button" id="settings-reset-targets">Reset all</button>

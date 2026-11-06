@@ -69,9 +69,13 @@ every NR, which is what sets the bottom two rows. CIBSE remains secondary —
 Guide B2 is paywalled — so its values are cross-checks, not authority. The full
 working, including what changed and why, is in `docs/CALCULATION-REVIEW.md` §11.
 
-**Flexible duct is capped at 3.5 m/s** on top of all this — AIRAH sw022, which
-calls it reasonable present-day practice. It binds under most spaces' runout
-figures.
+**Flexible duct is sized on velocity, not friction**: 3.5 m/s (AIRAH sw022,
+"reasonable present-day practice"), or the space's runout limit if that is
+lower. Flex runouts are short, so a high Pa/m costs little in absolute terms,
+and holding compressed flex to 1 Pa/m oversized it badly. An **8 Pa/m friction
+ceiling** on the compressed rate (Settings) is the backstop: it upsizes small,
+long or crushed flex where velocity alone would leave a real pressure penalty —
+e.g. 60 l/s at 15 % goes Ø150 → Ø160.
 
 Above NR 45 the published limits plateau — AIRAH caps the riser column at
 10 m/s at every NR — so back of house, workshop and car park share figures. They
@@ -184,7 +188,7 @@ would be a second constraint saying the same thing.
 | Duct role | Main / riser, branch, or runout — each has its own limit within the chosen space (fine-tuned in Settings). Hidden for flexible duct, which always uses its own dedicated limit regardless of role. |
 | Duct type | Circular, rectangular or flexible. Flexible is locked to the runout role — it's what flexible duct is, and a flexible "main" would otherwise be checked against the main's limit. It isn't offered on kitchen grease extract at all, not being normally fire-code permitted (e.g. NFPA 96/DW/172); switching a run to that system converts any existing flexible segments to circular. |
 | Material | Sets absolute roughness ε. Options are filtered to the duct type. |
-| Installed condition | Flexible duct only: fully extended, 15 % or 30 % compressed. |
+| Installed condition | Flexible duct only: 4 % taut, 10 % average, 15 % typical (default) or 30 % poor compression. |
 | Height / Ø override | Drives rectangular height, or the circular/flex diameter. Blank = auto. |
 | Width override | Rectangular only. Blank = solved from the height and the sizing target. |
 | Straight length | m. |
@@ -302,8 +306,13 @@ the segment velocity. Fixed-loss items (grilles, silencers, filters, coils)
 take a pressure in Pa instead. Every value is editable — replace them with
 manufacturers' data when you have it.
 
-**Flexible duct.** Higher roughness plus an installation factor: fully
-extended ×1.0, 15 % compressed ×2.0, 30 % compressed ×4.0.
+**Flexible duct.** Higher roughness (ε 3 mm) plus the LBNL size-dependent
+compression correction, `PDCF = 1 + k·rc`, with k = 25.35 at Ø150, 21.61 at
+Ø200, 16.18 at Ø250 (interpolated between, held outside that range). At 15 %
+that is ×4.8 at Ø150 and ×3.4 at Ø250. Compression options: 4 % (ACCA
+"fully extended"), 10 % (LBNL/ACEEE 2002 measured field average), 15 % (LBNL
+"normal stretch", default), 30 % (poor install). The k values are from LBNL's
+published work as reproduced in secondary sources; treat them as such.
 
 **Noise — deliberately not calculated.** There was an indicative A-weighted
 regenerated-noise estimate here. It was removed rather than improved, because
