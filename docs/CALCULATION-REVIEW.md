@@ -829,5 +829,25 @@ ASHRAE specifically; AIRAH allows runouts 20–35 % faster than the 50 % rule.
   velocity requirement is consistent across every secondary source but remains
   absence of evidence. The 2024 edition exists and has renumbered the kitchen
   clauses, so cl. 5.10.3 is a 2002 reference.
-- **A restaurant is not a shop.** CIBSE puts restaurants at NR 35–40
-  (7.5 / 6.0 / 3.5), a band below shops. They share a row here.
+- **CIBSE B2 Table 2.17** (medium/high-pressure duct, sized by pressure class
+  rather than noise) is not modelled at all. Everything here assumes
+  low-pressure work.
+
+### Restaurants split out of retail
+
+CIBSE bands restaurants with general offices at NR 35–40 (7.5 / 6.0 / 3.5), a
+step below shops, so sharing a row with retail was letting a restaurant main run
+at a shop's velocity. **Restaurant / café / bar** is now its own space at
+7.5 / 6.0 / 4.0 — CIBSE's main and branch for that row, with the runout following
+the office row rather than CIBSE's 3.5, which is tighter than anything else at
+that band (AIRAH's NR 40 runout is 5.5).
+
+The practical difference, on a 4,000 l/s main: restaurant gives Ø900 at 6.3 m/s,
+retail Ø800 at 8.0 m/s.
+
+Adding the eighth space broke the Settings picker. Eight chips overflowed the
+segmented control at phone width — 490 px of content in 360 px — with no scroll,
+so **Back of house and Commercial kitchen became uneditable**, silently. The
+picker is now a select, matching the main page. Worth noting as the second time
+a UI control has quietly stopped reaching part of its data; the first was the
+role picker hidden for flexible duct while the role still drove the limit.

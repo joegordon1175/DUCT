@@ -822,10 +822,20 @@ let settingsSpaceId = state.spaceTypeId;
 function renderSettingsTargets() {
   const space = spaceType(settingsSpaceId);
 
-  buildSegmentedControl($('#settings-space-group'), 'settings-space', SPACE_TYPES, settingsSpaceId, (id) => {
-    settingsSpaceId = id;
+  // A select, not a segmented control: at eight spaces the chips overflowed the
+  // sheet at phone width with no way to scroll, which left the last two
+  // uneditable. Matches the main page's picker.
+  const picker = $('#settings-space-select');
+  picker.replaceChildren(
+    ...SPACE_TYPES.map((sp) =>
+      el('option', { value: sp.id, text: `${sp.name} — ${sp.nr}`, selected: sp.id === settingsSpaceId })
+    )
+  );
+  picker.value = settingsSpaceId;
+  picker.onchange = (e) => {
+    settingsSpaceId = e.target.value;
     renderSettingsTargets();
-  });
+  };
 
   $('#settings-space-hint').textContent =
     `${space.name} — ${space.nr}. ${space.useCase}. These maxima are set by noise alone; ` +

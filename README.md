@@ -54,8 +54,9 @@ mis-fitting: it put a boardroom and a car park in the same bucket.
 | Bedroom / hotel room | NR 25 | 5.0 | 4.0 | 2.5 |
 | Living room / study | NR 30 | 6.0 | 5.0 | 3.0 |
 | Private office / meeting / classroom | NR 35 | 7.5 | 6.0 | 4.0 |
+| Restaurant / café / bar | NR 35–40 | 7.5 | 6.0 | 4.0 |
 | Open-plan office | NR 38 | 8.0 | 7.0 | 4.5 |
-| Retail / restaurant / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
+| Retail / circulation | NR 40 | 8.0 | 7.0 | 5.0 |
 | Toilet / back-of-house / riser / plant | NR 45+ | 10.0 | 8.0 | 6.0 |
 | Commercial kitchen | NR 45+ | 10.0 | 8.0 | 8.0 |
 
@@ -158,7 +159,7 @@ would be a second constraint saying the same thing.
 | Extra fixed loss | Pa, for anything not in the library. |
 
 **Settings** — one project-wide friction target (Pa/m); maximum velocity by
-duct role — main, branch and runout — for each of the seven spaces, editable
+duct role — main, branch and runout — for each of the eight spaces, editable
 independently of which space is active on the main page; the grease transport
 band and the turndown check; air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit

@@ -154,6 +154,19 @@ export const SPACE_TYPES = [
     roles: { main: 7.5, branch: 6.0, runout: 4.0 },
   },
   {
+    // CIBSE bands restaurants with general offices at NR 35–40 (7.5 / 6.0 / 3.5),
+    // a step below shops — they shared the retail row here until the sources
+    // were read. Main and branch are CIBSE's figures for that row; the runout
+    // follows the office row above rather than CIBSE's 3.5, which is tighter
+    // than anything else in this table at that band (AIRAH's NR 40 is 5.5).
+    id: 'restaurant',
+    name: 'Restaurant / café / bar',
+    short: 'Restaurant',
+    useCase: 'Dining and drinking spaces — quieter than retail',
+    nr: 'NR 35–40',
+    roles: { main: 7.5, branch: 6.0, runout: 4.0 },
+  },
+  {
     id: 'openplan',
     name: 'Open-plan office',
     short: 'Open plan',
@@ -166,13 +179,13 @@ export const SPACE_TYPES = [
   },
   {
     id: 'retail',
-    name: 'Retail / restaurant / circulation',
+    name: 'Retail / circulation',
     short: 'Retail',
-    useCase: 'Shops, restaurants, lobbies and corridors',
+    useCase: 'Shops, lobbies and corridors',
     nr: 'NR 40',
     // Was 9.0 / 7.5 / 5.0, which is AIRAH's NR 45 row, not its NR 40 row
     // (8.0 / 7.0 / 5.5). CIBSE puts shops at 9.0 but bands them NR 40–45.
-    // NOTE: CIBSE puts restaurants a band LOWER, at NR 35–40, 7.5 / 6.0 / 3.5.
+    // Restaurants used to share this row and now have their own, a band lower.
     roles: { main: 8.0, branch: 7.0, runout: 5.0 },
   },
   {
