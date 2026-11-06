@@ -2,7 +2,8 @@
 
 A mobile-first web app for HVAC ductwork sizing selections. Enter an airflow,
 pick the duct type and space type, and it sizes the duct, checks it against
-velocity and noise limits, and totals the branch pressure drop as you type.
+the velocity limits for that space and duct role, and totals the branch
+pressure drop as you type.
 
 No build step, no dependencies, works offline once loaded.
 
@@ -33,7 +34,7 @@ device that already has the app can keep showing the old version.
 
 | Input | Notes |
 |---|---|
-| Space type | Residential / Commercial / Kitchen Extract. Each has a **fixed** sizing method — see below — plus its own noise criterion. |
+| Space type | Residential / Commercial / Kitchen Extract. Each has a **fixed** sizing method — see below — plus its own velocity limits per duct role. |
 | Snap to standard sizes | On by default; off gives the exact calculated size. |
 
 The sizing method and its target aren't editable here — they're read-only,
@@ -68,8 +69,7 @@ main page), air temperature and altitude (drives density and viscosity),
 standard duct size lists for circular, rectangular and flexible duct (edit
 these to match what your supplier actually stocks — invalid or emptied lists
 fall back to the shipped defaults so a typo can't break sizing), maximum
-aspect ratio, maximum duct height for a ceiling void, and the duct-to-room
-acoustic correction.
+aspect ratio, and maximum duct height for a ceiling void.
 
 **System allowances** — plant/AHU pressure, fan selection margin, and the
 DW/144 leakage class.
@@ -89,23 +89,24 @@ DW/144 leakage class.
 
 ## Outputs
 
-Live in the sticky footer: duct size, velocity, Pa/m, total Pa, room dBA.
+Live in the sticky footer: duct size, velocity, Pa/m, total Pa.
 
 Per segment: duct size, velocity, friction rate (Pa/m), velocity pressure,
-straight loss, fittings loss, segment total, regenerated noise (dBA), Reynolds
-number, friction factor, equivalent/hydraulic diameter, aspect ratio, free
-area, equivalent length and duct surface area.
+straight loss, fittings loss, segment total, Reynolds number, friction factor,
+equivalent/hydraulic diameter, aspect ratio, free area, the fittings'
+equivalent length and duct surface area.
 
 For the run: total branch pressure drop, fan duty with margin, the velocity
 that matters for the sizing mode in play (max for friction-sized runs, min for
-velocity-sized ones — see below), sound power and estimated room level, run
-length, duct surface area, DW/144 pressure class, and estimated leakage in
+velocity-sized ones — see below) and the other end of the range alongside it,
+run length, duct surface area, DW/144 pressure class, and estimated leakage in
 l/s and as a percentage of duty.
 
 Colour-coded flags call out velocities outside the limit (over the max in
 both modes; under the minimum too in velocity mode, since that's the failure
-that lets grease settle out), excessive aspect ratios, flexible runs beyond
-3 m, and noise above the space's criterion.
+that lets grease settle out), a friction rate above the target, excessive
+aspect ratios, flexible runs beyond 3 m, and any duty your size list cannot
+serve.
 
 Export as CSV, or copy a plain-text summary for an email or a report.
 
@@ -132,9 +133,16 @@ De = 1.30 (a·b)^0.625 / (a+b)^0.25
 ```
 
 on an equal-friction, equal-flow basis — the friction rate is that of the
-equivalent round duct. Velocity, velocity pressure and noise use the *actual*
-face area, because that is what the air in the duct is really doing. Verified
+equivalent round duct. Velocity and velocity pressure use the *actual* face
+area, because that is what the air in the duct is really doing. Verified
 against the ASHRAE equivalent-diameter table.
+
+Two Reynolds numbers fall out of that and the app reports both rather than
+conflating them: the duct's own (hydraulic diameter, actual velocity) and the
+one the friction factor is taken at (equivalent diameter, equivalent
+velocity). They differ by about 20 % on a 600 × 400, which changes `f`
+negligibly — both are fully turbulent — but a figure labelled "Reynolds
+number" should be the duct's.
 
 **Two sizing modes.** Friction-mode spaces (Residential, Commercial) size to
 a constant friction rate; velocity is only ever checked afterwards, so
@@ -149,8 +157,17 @@ Standard sizes snap *down* instead (`snapDown`/`snapFloor` in engine.js),
 landing on the largest standard size that still meets the minimum, while a
 second bound (the diameter at the *maximum* velocity) stops it snapping down
 so far that the max is exceeded instead. Where no standard size fits between
-the two bounds, respecting the maximum takes priority over holding the
-minimum, since exceeding it risks duct erosion.
+the two bounds, the app takes whichever misses by less as a ratio — a fixed
+priority gets this wrong in both directions, since holding the cap on a coarse
+list can mean nearly doubling the diameter while holding the minimum can mean
+running at three times the intended velocity.
+
+**Sizing never leaves your size list.** If no listed size can meet the rule —
+a kitchen duty below the smallest size you stock, or a duty past the largest —
+the nearest listed size is shown and flagged, rather than an unlisted one
+being invented. On the shipped round list Ø150 only reaches 7.5 m/s at 133 l/s,
+so a small canopy below that is flagged; add a smaller size in Settings if your
+supplier holds one.
 
 **Fittings.** Velocity-pressure method, `Δp = ζ · ρv²/2`, with ζ referred to
 the segment velocity. Fixed-loss items (grilles, silencers, filters, coils)
@@ -160,31 +177,45 @@ manufacturers' data when you have it.
 **Flexible duct.** Higher roughness plus an installation factor: fully
 extended ×1.0, 15 % compressed ×2.0, 30 % compressed ×4.0.
 
-**Noise.** An indicative A-weighted regenerated sound power per element,
+**Noise — deliberately not calculated.** There was an indicative A-weighted
+regenerated-noise estimate here. It was removed rather than improved, because
+it could not be made trustworthy without octave-band data the app does not
+have:
 
-```
-L_wA = 10 + 50 log₁₀(v) + 10 log₁₀(A) + 10 log₁₀(ζ)
-```
+- Every fixed-pressure item scored zero, so grilles, diffusers, silencers,
+  filters and coils contributed nothing — and the terminal is normally the
+  loudest thing in the room.
+- There was no duct attenuation, and generated noise did not scale with
+  length, so upstream sound power was summed into the room level undiminished.
+- Those two errors run in opposite directions and cannot be netted off.
+- The residential check could not fire at any permitted velocity: 30 dBA room
+  SPL needed 5.8–8.5 m/s depending on size, against a 5.0 m/s cap.
 
-The v⁵·A form is the long-standing CIBSE/Woods rule of thumb for airflow noise
-in ductwork; the ζ term scales it with the disturbance the element causes, so a
-mitred bend reads about 9 dB above a smooth radius bend. Elements are summed
-logarithmically, and the room level is the sound power less a single
-duct-to-room correction (9 dB by default).
+The velocity limits are the noise control, which is how CIBSE Guide B3 and
+ASHRAE present them anyway. For a real acoustic assessment, use manufacturers'
+sound-power data for the terminals and a proper attenuation calculation.
 
-This is deliberately a comparison tool — it tells you whether a selection is
-quiet enough to be plausible and which fitting is the noisy one. It is **not**
-an octave-band acoustic calculation and does not replace manufacturers' data
-or a specialist assessment for a noise-critical space.
+**Leakage and pressure class.** Leakage is `q = k · p^0.65` per m² of duct
+surface (class A 0.027, B 0.009, C 0.003, D 0.001), taken at the mean pressure
+**inside the ductwork**. The plant allowance is excluded — a coil, filter or
+grease-filter bank is not duct static pressure, and folding it in overstated
+leakage by up to 5×.
 
-**Leakage and pressure class.** DW/144 construction class from operating
-pressure and velocity, with leakage `q = k · p^0.65` per m² of duct surface
-(class A 0.027, B 0.009, C 0.003, D 0.001).
+The DW/144 construction class does use the fan total, because the app cannot
+know whether the plant allowance sits upstream or downstream of the duct and
+the duct must be built for the worst case. The inconsistency with leakage is
+deliberate: over-specifying sheet metal is cheap, overstating a leakage figure
+you might report is not.
+
+**Equivalent length** is reported for velocity-pressure fittings only. A
+fixed-Pa component has no equivalent length — folding a dirty filter in read
+as 260 m of extra duct.
 
 ### Reference data
 
 Friction-mode velocity limits follow CIBSE Guide B3 / ASHRAE recommended
-maxima for noise-sensitive design; velocity-mode (Kitchen Extract) minimum
+maxima for noise-sensitive design, and they are the app's only noise control;
+velocity-mode (Kitchen Extract) minimum
 transport velocities are indicative defaults pending confirmation against
 DW/172 for the specific kitchen and canopy design. Roughness values follow
 the ASHRAE Fundamentals duct roughness table, and loss coefficients are

@@ -89,6 +89,12 @@ export const FLEX_CONDITIONS = [
  * maxima for the friction-mode spaces; DW/172-style kitchen grease extract
  * transport velocities for Industrial) — the app lets every number here be
  * edited and reset per space type in Settings.
+ *
+ * These velocity limits are the app's ONLY noise control. The regenerated-noise
+ * estimate was removed (see the note in engine.js) because it could not be made
+ * trustworthy without octave-band terminal data. Keeping velocities inside these
+ * figures is how CIBSE Guide B3 and ASHRAE present the control anyway; an actual
+ * acoustic assessment needs manufacturers' sound-power data, not this app.
  */
 
 export const SPACE_TYPES = [
@@ -99,8 +105,6 @@ export const SPACE_TYPES = [
     useCase: 'Homes & apartments',
     sizingMethod: 'friction',
     targetFriction: 0.8, // Pa/m
-    noiseLimitDba: 30, // ≈ NR 25
-    noiseCriterion: 'NR 25',
     roles: {
       main: { recommended: 4.0, max: 5.0 },
       branch: { recommended: 3.0, max: 3.5 },
@@ -115,8 +119,6 @@ export const SPACE_TYPES = [
     useCase: 'Offices, retail & general ventilation',
     sizingMethod: 'friction',
     targetFriction: 1.0,
-    noiseLimitDba: 40, // ≈ NR 35
-    noiseCriterion: 'NR 35',
     roles: {
       main: { recommended: 6.0, max: 8.0 },
       branch: { recommended: 4.5, max: 6.0 },
@@ -134,8 +136,6 @@ export const SPACE_TYPES = [
     // (e.g. NFPA 96/DW/172), so it is not offered as a duct type here — and
     // its velocity limits are hidden in Settings, since nothing could use them.
     allowsFlexible: false,
-    noiseLimitDba: 50, // ≈ NR 45
-    noiseCriterion: 'NR 45',
     roles: {
       // "recommended" is a MINIMUM transport velocity, not a soft ceiling —
       // see the file-level note above. Confirm against DW/172 and the
@@ -282,16 +282,3 @@ export function fittingGroups(shape) {
   }
   return [...groups.entries()];
 }
-
-/* ------------------------------------------------------------------ *
- * Noise criteria — indicative dBA room limits by space use
- * ------------------------------------------------------------------ */
-
-export const NOISE_CRITERIA = [
-  { name: 'Bedroom', nr: 'NR 25', dba: 30 },
-  { name: 'Living room', nr: 'NR 30', dba: 35 },
-  { name: 'Private office', nr: 'NR 35', dba: 40 },
-  { name: 'Open plan office', nr: 'NR 38', dba: 43 },
-  { name: 'Retail / restaurant', nr: 'NR 40', dba: 45 },
-  { name: 'Workshop / plant', nr: 'NR 45', dba: 50 },
-];

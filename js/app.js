@@ -10,7 +10,6 @@ import { airProperties, calcSegment, calcRun, pressureClassDependsOnSign } from 
 import {
   SPACE_TYPES,
   DUCT_ROLES,
-  NOISE_CRITERIA,
   DEFAULT_MATERIAL,
   FLEX_CONDITIONS,
   FITTINGS,
@@ -177,7 +176,6 @@ function defaultState() {
     plantPa: 0,
     marginPct: 10,
     leakageClass: 'A',
-    roomCorrection: 9,
     sizeLists: {
       round: [...DEFAULT_SIZE_LISTS.round],
       rect: [...DEFAULT_SIZE_LISTS.rect],
@@ -258,6 +256,9 @@ function normaliseState(parsed) {
   delete merged.method;
   delete merged.targetFriction;
   delete merged.targetVelocity;
+  // The regenerated-noise estimate and its duct-to-room correction were removed
+  // (see the note in engine.js); drop a stale saved value rather than carry it.
+  delete merged.roomCorrection;
   // A save from before flexible was excluded from Kitchen Extract could
   // still have a flexible segment sitting under it.
   enforceShapeRules(merged.spaceTypeId, merged.segments);
@@ -519,7 +520,6 @@ function compute() {
     {
       plantPa: num(state.plantPa, 0),
       marginPct: num(state.marginPct, 0),
-      roomCorrection: num(state.roomCorrection, 9),
       leakageClass: state.leakageClass,
     }
   );
@@ -540,13 +540,6 @@ function velocityStatus(velocity, limits, isFloor) {
   if (velocity > limits.max) return 'bad';
   if (isFloor) return velocity < limits.recommended ? 'bad' : 'ok';
   return velocity > limits.recommended ? 'warn' : 'ok';
-}
-
-function noiseStatus(dba, limitDba) {
-  if (!(dba > 0)) return 'info';
-  if (dba > limitDba + 5) return 'bad';
-  if (dba > limitDba) return 'warn';
-  return 'ok';
 }
 
 /* ------------------------------------------------------------------ *
@@ -586,7 +579,6 @@ function buildDesignBasis() {
   $('#altitude').value = state.altitudeM;
   $('#max-aspect').value = state.maxAspect;
   $('#max-height').value = state.maxHeightMm || '';
-  $('#room-correction').value = state.roomCorrection;
 
   syncSizeFields();
 }
@@ -1223,7 +1215,6 @@ function update() {
       metric(fmt(result.velocityPressure, 1), 'vel. press. Pa'),
       metric(fmt(result.straightLoss, 1), 'straight Pa'),
       metric(fmt(result.fittingLoss + result.componentPa, 1), 'fittings Pa'),
-      metric(fmt(result.noiseLwA, 0), 'noise dBA', noiseStatus(result.noiseLwA, space.noiseLimitDba)),
       metric(fmt0(result.reynolds), 'Reynolds no.'),
       metric(fmt(result.frictionFactor, 4), 'friction factor'),
       metric(
@@ -1234,7 +1225,9 @@ function update() {
         rect ? `${fmt(result.aspectRatio, 2)}:1` : `${fmt(result.area, 4)} m²`,
         rect ? 'aspect ratio' : 'free area'
       ),
-      metric(fmt(result.equivalentLengthM, 1), 'equiv. length m'),
+      // Fittings only: a fixed-Pa component has no equivalent length, and
+      // folding one in read a dirty filter as 260 m of extra duct.
+      metric(fmt(result.fittingsEquivalentLengthM, 1), 'fittings equiv. m'),
       metric(fmt(result.surfaceArea, 1), 'duct area m²'),
     ];
 
@@ -1265,13 +1258,23 @@ function update() {
     if (result.shape === 'flexible' && result.lengthM > 3) {
       flags.push({ level: 'warn', text: `Seg ${i}: ${fmt(result.lengthM, 1)} m of flexible — most specs cap runs at 3 m` });
     }
-  }
-
-  const noise = noiseStatus(run.roomSpl, space.noiseLimitDba);
-  if (noise === 'bad') {
-    flags.push({ level: 'bad', text: `Est. ${fmt(run.roomSpl, 0)} dBA in room exceeds ${space.noiseCriterion} (${space.noiseLimitDba} dBA)` });
-  } else if (noise === 'warn') {
-    flags.push({ level: 'warn', text: `Est. ${fmt(run.roomSpl, 0)} dBA is at the ${space.noiseCriterion} limit` });
+    // Sizing never leaves the configured size list, so a duty the list cannot
+    // serve has to be said out loud rather than met with an invented size.
+    if (result.sizeLimited && state.useStandardSizes) {
+      flags.push({
+        level: 'bad',
+        text: `Seg ${i}: no size in your list meets the sizing rule at ${fmt0(num(seg.airflowLps, 0))} l/s — ` +
+          `nearest available (${result.label}) shown. Add sizes in Settings.`,
+      });
+    }
+    // Ceiling mode sized to a friction target but could not hold it — an
+    // overridden size, or a duty past the end of the list.
+    if (result.exceedsFrictionTarget) {
+      flags.push({
+        level: 'warn',
+        text: `Seg ${i}: ${fmt(result.frictionRate, 2)} Pa/m is above the ${fmt(frictionTargetFor(state.spaceTypeId), 1)} Pa/m target`,
+      });
+    }
   }
 
   if (run.pressureClass !== 'A') {
@@ -1289,7 +1292,7 @@ function update() {
     });
   }
   if (flags.length === 0 && run.totalPa > 0) {
-    flags.push({ level: 'ok', text: 'All velocities and noise levels within limits' });
+    flags.push({ level: 'ok', text: 'All velocities within limits and the sizing rule met' });
   }
 
   $('#run-flags').replaceChildren(
@@ -1318,15 +1321,6 @@ function update() {
     metric(`${fmt(run.fanDutyPa, 0)} Pa`, `fan duty (+${fmt0(num(state.marginPct, 0))} %)`, 'hero'),
     metric(first ? first.label : '—', 'index duct size'),
     metric(fmt(headlineVelocity, 2), headlineVelocityLabel, worstVelocityStatus),
-    // Sound power is judged against the room limit grossed back up by the same
-    // duct-to-room correction used to derive room SPL — not a hardcoded 9 dB,
-    // which silently ignored a user-edited correction in Settings.
-    metric(
-      fmt(run.noiseLwA, 0),
-      'noise LᴡA dBA',
-      noiseStatus(run.noiseLwA, space.noiseLimitDba + num(state.roomCorrection, 9))
-    ),
-    metric(fmt(run.roomSpl, 0), 'est. room dBA', noise),
     metric(fmt(run.ductPa, 1), 'ductwork Pa'),
     metric(fmt(run.plantPa, 0), 'plant Pa'),
     metric(fmt(run.lengthM, 1), 'run length m'),
@@ -1334,7 +1328,12 @@ function update() {
     metric(run.pressureClass, 'DW/144 class'),
     metric(`${fmt(run.leakageLps, 1)} l/s`, `leakage (${fmt(run.leakagePct, 1)} %)`),
     metric(fmt(air.density, 3), 'air density kg/m³'),
-    metric(space.noiseCriterion, 'noise criterion')
+    // The headline shows whichever end of the velocity range the sizing method
+    // cares about; this is the other end, so both are on the page.
+    metric(
+      fmt(isFloor ? run.maxVelocity : run.minVelocity, 2),
+      isFloor ? 'max velocity m/s' : 'min velocity m/s'
+    )
   );
 
   /* -- breakdown table ------------------------------------------------ */
@@ -1350,7 +1349,6 @@ function update() {
         el('td', { text: fmt(result.lengthM, 1) }),
         el('td', { text: fmt(result.fittingLoss + result.componentPa, 1) }),
         el('td', { class: 'hi', text: fmt(result.totalLoss, 1) }),
-        el('td', { text: fmt(result.noiseLwA, 0) }),
       ]);
     })
   );
@@ -1363,9 +1361,6 @@ function update() {
   $('#sum-vel-key').textContent = isFloor ? 'min m/s' : 'max m/s';
   $('#sum-rate').textContent = first ? fmt(first.frictionRate, 2) : '—';
   $('#sum-total').textContent = fmt(run.totalPa, 0);
-  const noiseNode = $('#sum-noise');
-  noiseNode.textContent = fmt(run.roomSpl, 0);
-  noiseNode.className = `sum-val ${noise}`;
 
   /* -- settings sheet air readout --------------------------------------- */
   $('#air-hint').textContent =
@@ -1374,8 +1369,8 @@ function update() {
 
   /* -- design basis readout (sizing method is fixed, shown not edited) -- */
   $('#space-hint').textContent = isFloor
-    ? `${space.useCase} · constant velocity, sized to a minimum transport velocity per duct role · ${space.noiseCriterion} (${space.noiseLimitDba} dBA)`
-    : `${space.useCase} · constant friction, target ${fmt(frictionTargetFor(state.spaceTypeId), 1)} Pa/m · ${space.noiseCriterion} (${space.noiseLimitDba} dBA)`;
+    ? `${space.useCase} · constant velocity, sized to a minimum transport velocity per duct role`
+    : `${space.useCase} · constant friction, target ${fmt(frictionTargetFor(state.spaceTypeId), 1)} Pa/m`;
 
   save();
 }
@@ -1408,8 +1403,7 @@ function summaryText() {
       `  Size ${result.label} · ${fmt(result.velocity, 2)} m/s · ${fmt(result.frictionRate, 2)} Pa/m`,
       `  Length ${fmt(result.lengthM, 1)} m = ${fmt(result.straightLoss, 1)} Pa` +
         ` · fittings ${fmt(result.fittingLoss + result.componentPa, 1)} Pa` +
-        ` · total ${fmt(result.totalLoss, 1)} Pa`,
-      `  Regenerated noise ${fmt(result.noiseLwA, 0)} dBA`
+        ` · total ${fmt(result.totalLoss, 1)} Pa`
     );
     for (const fit of result.fittings) {
       lines.push(`    ${fit.qty} × ${fit.name} = ${fmt(fit.total, 1)} Pa`);
@@ -1423,7 +1417,6 @@ function summaryText() {
     `TOTAL BRANCH      ${fmt(run.totalPa, 1)} Pa`,
     `Fan duty (+${fmt0(num(state.marginPct, 0))} %)  ${fmt(run.fanDutyPa, 0)} Pa`,
     `Velocity          max ${fmt(run.maxVelocity, 2)} m/s · min ${fmt(run.minVelocity, 2)} m/s`,
-    `Noise LwA         ${fmt(run.noiseLwA, 0)} dBA (est. ${fmt(run.roomSpl, 0)} dBA in room)`,
     `DW/144 class      ${run.pressureClass} · leakage ${fmt(run.leakageLps, 1)} l/s (${fmt(run.leakagePct, 1)} %)`
   );
 
@@ -1434,8 +1427,9 @@ function csvText() {
   const { results, run } = compute();
   const rows = [
     ['Segment', 'Airflow l/s', 'Shape', 'Size', 'Velocity m/s', 'Pa/m', 'Length m',
-     'Straight Pa', 'Fittings Pa', 'Total Pa', 'Noise dBA', 'Reynolds', 'Friction factor',
-     'Equiv dia mm', 'Aspect', 'Duct area m2'],
+     'Straight Pa', 'Fittings Pa', 'Total Pa', 'Reynolds (duct)',
+     'Reynolds (equiv. round)', 'Friction factor', 'Equiv dia mm', 'Aspect',
+     'Duct area m2', 'Fittings equiv. length m', 'Sizing rule met'],
   ];
 
   results.forEach(({ seg, result }, i) => {
@@ -1450,12 +1444,14 @@ function csvText() {
       result.straightLoss.toFixed(2),
       (result.fittingLoss + result.componentPa).toFixed(2),
       result.totalLoss.toFixed(2),
-      result.noiseLwA.toFixed(1),
       Math.round(result.reynolds),
+      Math.round(result.reynoldsEquivalent),
       result.frictionFactor.toFixed(5),
       Math.round(result.equivalentDiameterMm),
       result.aspectRatio.toFixed(2),
       result.surfaceArea.toFixed(2),
+      result.fittingsEquivalentLengthM.toFixed(2),
+      result.ruleMet ? 'yes' : 'NO',
     ]);
   });
 
@@ -1465,10 +1461,9 @@ function csvText() {
   rows.push(['Fan duty Pa', run.fanDutyPa.toFixed(2)]);
   rows.push(['Max velocity m/s', run.maxVelocity.toFixed(2)]);
   rows.push(['Min velocity m/s', run.minVelocity.toFixed(2)]);
-  rows.push(['Noise LwA dBA', run.noiseLwA.toFixed(1)]);
-  rows.push(['Est room dBA', run.roomSpl.toFixed(1)]);
   rows.push(['DW/144 class', run.pressureClass]);
-  rows.push(['Leakage l/s', run.leakageLps.toFixed(2)]);
+  rows.push(['Leakage l/s (duct pressure basis, excl. plant)', run.leakageLps.toFixed(2)]);
+  rows.push(['Sizing rule met on every segment', run.rulesMet ? 'yes' : 'NO']);
 
   return rows
     .map((row) => row.map((cell) => {
@@ -1533,7 +1528,6 @@ function init() {
   bindInput('#altitude', 'altitudeM');
   bindInput('#max-aspect', 'maxAspect');
   bindInput('#max-height', 'maxHeightMm');
-  bindInput('#room-correction', 'roomCorrection');
 
   $('#leakage-class').addEventListener('change', (e) => {
     state.leakageClass = e.target.value;
@@ -1633,16 +1627,6 @@ function init() {
     $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
-  $('#criteria-table tbody').replaceChildren(
-    ...NOISE_CRITERIA.map((c) =>
-      el('tr', {}, [
-        el('td', { text: c.name }),
-        el('td', { text: c.nr }),
-        el('td', { text: String(c.dba) }),
-      ])
-    )
-  );
-
   $('#about-text').textContent =
     'Straight-duct friction is calculated with the Darcy–Weisbach equation using a ' +
     'Colebrook–White friction factor iterated to convergence, on air properties derived ' +
@@ -1653,8 +1637,12 @@ function init() {
     'drop the actual velocity below the minimum needed to keep grease entrained. Fitting ' +
     'losses use the velocity-pressure method with the ζ values ' +
     'shown, which you can overwrite with manufacturers’ data. Leakage follows the DW/144 ' +
-    'class factors. Regenerated noise is an indicative A-weighted estimate for comparing ' +
-    'selections, not a substitute for an octave-band acoustic calculation.';
+    'class factors, applied to the mean pressure inside the ductwork — the plant ' +
+    'allowance is excluded, because it is not duct static pressure. Sizes never leave ' +
+    'your configured size list: a duty the list cannot serve is flagged rather than met ' +
+    'with an unlisted size. There is deliberately no noise calculation — velocity limits ' +
+    'are the noise control here, as CIBSE Guide B3 and ASHRAE present them. A dBA figure ' +
+    'needs manufacturers’ octave-band data for the terminals, which this app does not have.';
 
   renderAll();
 

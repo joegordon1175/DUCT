@@ -1,5 +1,10 @@
 # DUCT — calculation method & assumptions review
 
+> **Status: acted on.** Every defect below (D1, D2, D3) is fixed, and the noise
+> model has been removed from the app entirely rather than patched — see
+> §6 for what changed. The findings are kept as written so the reasoning
+> behind each change stays on the record.
+
 Reviewed at commit `ec3276f`. Engine `js/engine.js`, reference data `js/data.js`,
 UI/flagging `js/app.js`. 57/57 unit tests pass.
 
@@ -203,16 +208,94 @@ pass.
 
 ---
 
-## 5. Suggested order of work
+## 5. What was changed
 
-1. **D3** — leakage basis. One line, no behavioural risk, removes a figure that
-   is up to 5× out.
-2. **D1/D2** — refuse to leave the size list. Clamp to the list and raise a flag
-   saying no listed size can hold the target, rather than inventing Ø100 or
-   50 mm wide. Also settles the `snapFloor` cap-vs-minimum priority question.
-3. **A1** — give terminals a noise contribution, or state plainly in the UI that
-   the dBA figure is duct-generated noise only and excludes terminals. The second
-   is honest and costs nothing.
-4. **A4** — a kitchen-extract temperature default, or a prompt.
-5. The rest are documentation: A5, A6, A7, A8, A9 are all correct-as-designed
-   and only need saying out loud.
+All three defects are fixed and the noise model is gone. `npm test` covers
+each change.
+
+### D1/D2 — sizing never leaves the configured size list
+
+`snapUp` now clamps to the largest listed size and `snapDown` to the smallest,
+instead of inventing a 50 mm multiple outside the list. The 50 mm fallback
+survives only for an empty list, where there is nothing to clamp to.
+
+That removes the fabricated sizes and makes kitchen sizing monotonic again:
+
+| Duty | Before | After |
+|---|---|---|
+| 40 l/s | Ø150, 2.26 m/s | Ø150, 2.26 m/s — flagged |
+| 60 l/s | **Ø100** (off-list), 7.64 m/s, unflagged | Ø150, 3.40 m/s — flagged |
+| 80 l/s | **Ø100** (off-list), 10.19 m/s, unflagged | Ø150, 4.53 m/s — flagged |
+| 100 l/s | Ø150, 5.66 m/s | Ø150, 5.66 m/s — flagged |
+| 40–60 l/s rect | **50 × 100** (not fabricable) | 100 × 100 |
+| 15 000 l/s | **Ø1500** (off-list) | Ø1400 — flagged |
+| 30 000 l/s | **Ø2100** (off-list) | Ø1400 — flagged |
+
+`calcSegment` now reports `ruleMet`, `sizeLimited`, `belowMinVelocity`,
+`exceedsMaxVelocity` and `exceedsFrictionTarget`, and the UI raises a flag
+naming the duty and the nearest available size: *"no size in your list meets
+the sizing rule at 100 l/s — nearest available (Ø150 mm) shown. Add sizes in
+Settings."* `sizeLimited` is false for an overridden size, since there the fix
+is not to add sizes to the list.
+
+A friction rate above the target is now flagged too; previously only velocity
+was checked, so an overridden size could quietly run at 14 Pa/m against a
+1 Pa/m target.
+
+**`snapFloor`'s tie-break changed.** It used to favour the velocity cap over
+the transport minimum by fixed priority. That is wrong in both directions: on a
+coarse list, holding the cap can mean nearly doubling the diameter, while
+holding the minimum can mean running at three times the intended velocity. It
+now takes whichever limit it misses by less, as a ratio — velocity goes as 1/d²
+for round duct and 1/w at a fixed height, so the smaller ratio is the smaller
+velocity excursion either way. Either breach is flagged regardless.
+
+### D3 — leakage is taken on duct pressure
+
+`meanPressure` is now `ductPa / 2`, excluding the plant allowance. On the
+worked example the figure drops from 22.70 l/s back to 6.16 l/s at 450 Pa of
+plant. The DW/144 construction class deliberately still uses the fan total —
+the app cannot know which side of the duct the plant sits on, and the duct must
+be built for the worst case. That inconsistency is now stated in the code, the
+README and the app's own method note.
+
+### The noise model is removed
+
+Not patched — removed. `regeneratedNoise` and `combineLevels` are gone from the
+engine, along with `noiseLwA`, `roomSpl`, the per-fitting noise figure, the
+`noiseLimitDba`/`noiseCriterion` fields on every space type, the `NOISE_CRITERIA`
+reference table, the duct-to-room correction setting, the dBA column in the
+breakdown table and CSV, and the dBA tile in the sticky footer. A stale saved
+`roomCorrection` is dropped on load.
+
+Velocity limits are the noise control now, which is how CIBSE Guide B3 and
+ASHRAE present them anyway. The app says so in its method note rather than
+leaving a reader to wonder where the dBA figure went.
+
+### A6, A7 — reporting corrected
+
+- **Reynolds number.** `reynolds` is now the duct's own (hydraulic diameter,
+  actual velocity). The equal-friction value the friction factor is taken at is
+  reported separately as `reynoldsEquivalent`, and both are columns in the CSV.
+  For round duct they are equal.
+- **Equivalent length.** `fittingsEquivalentLengthM` covers velocity-pressure
+  fittings only and is what the UI now shows. The combined figure — which read
+  a dirty filter as 260 m of extra duct — is kept in the engine output for
+  continuity but is no longer displayed.
+
+### Left as they are, and why
+
+- **A4, kitchen extract at 20 °C** — conservative (over-states Pa by ~3 % on
+  the fan against 60 °C air) and sizing is velocity-driven, so dimensions do
+  not move. The temperature is settable; changing the default would quietly
+  reduce everyone's fan duty.
+- **A5, max velocity inert in floor sizing** — correct as designed. It
+  constrains overrides and raises flags.
+- **A8, DW/144 class on the whole run** — conservative, see D3 above.
+- **A9, single index run** — the right scope for a sizing tool.
+
+### Minor
+
+- `combineLevels`' threshold is moot now the noise model is gone.
+- `node --test test/` still fails on Node 22 (it treats the bare directory as a
+  test file). Use `npm test`, which globs `test/*.test.mjs`.
